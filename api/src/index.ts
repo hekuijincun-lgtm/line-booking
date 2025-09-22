@@ -10,7 +10,7 @@ export interface Env {
  * POST /api/line/webhook
  */
 export default {
-  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(req: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
 
     // Healthcheck
@@ -21,7 +21,7 @@ export default {
     if (url.pathname === "/api/line/webhook" && req.method === "POST") {
       const bodyText = await req.text();
 
-      // 署名検証（必須）
+      // 署名検証（LINE仕様: HMAC-SHA256 + Base64）
       const isValid = await verifyLineSignature(
         bodyText,
         req.headers.get("x-line-signature") || "",
@@ -31,13 +31,12 @@ export default {
 
       const payload = JSON.parse(bodyText);
 
-      // 複数イベントを順次処理
+      // 複数イベントに備えて順次処理
       for (const ev of payload.events || []) {
         if (ev.type === "message" && ev.message?.type === "text") {
           const userId = ev.source?.userId as string | undefined;
-          const text: string = (ev.message.text || "").trim();
+          const text: string = (ev.message.text || "");
           const replyToken: string | undefined = ev.replyToken;
-
           if (!userId || !replyToken) continue;
 
           try {
@@ -74,10 +73,21 @@ async function handleCommand(
   userId: string,
   env: Env
 ): Promise<LineMessage> {
-  const lower = text.toLowerCase();
+  // --- 正規化（ここがポイント！） ---
+  // 1) 最初の1行だけコマンドとして採用
+  const firstLine = (text || "").split(/\r?\n/)[0].trim();
+  // 2) 先頭が全角スラッシュなら半角に、連続スペースは1つに
+  const normalized = firstLine
+    .replace(/^／/, "/")
+    .replace(/\s+/g, " ");
+  const lower = normalized.toLowerCase();
 
-  if (lower.startsWith("/reserve")) {
-    const parsed = parseReserveCommand(text);
+  // ↓必要ならデバッグ用ログ（確認が終わったらコメントアウトのままでOK）
+  // console.log("FIRST=", firstLine, "NORM=", normalized);
+
+  // 判定は正規表現で堅く
+  if (/^\/reserve\b/i.test(normalized)) {
+    const parsed = parseReserveCommand(normalized);
     if (!parsed.ok) {
       return {
         type: "text",
@@ -94,9 +104,7 @@ async function handleCommand(
     const iso = toISOJST(year, month, day, time);
     const nowIso = nowISOJST();
 
-    // 予約IDを生成（短いID）
     const id = shortId();
-
     const record: Reservation = {
       id,
       userId,
@@ -123,7 +131,7 @@ async function handleCommand(
     };
   }
 
-  if (lower.startsWith("/my")) {
+  if (/^\/my\b/i.test(lower)) {
     const list = await listReservations(env, userId, 10);
     if (list.length === 0) {
       return {
@@ -144,8 +152,8 @@ async function handleCommand(
     };
   }
 
-  if (lower.startsWith("/cancel")) {
-    const m = text.trim().split(/\s+/);
+  if (/^\/cancel\b/i.test(lower)) {
+    const m = normalized.split(/\s+/);
     if (m.length < 2) {
       return {
         type: "text",
@@ -187,7 +195,7 @@ async function handleCommand(
     type: "text",
     text:
       "echo: " +
-      text +
+      firstLine +
       "\n\n予約するなら `/reserve 9/25 15:00 カット` って打ってね💇‍♂️",
     quickReply: quick(["/reserve 9/25 15:00 カット", "/my", "ヘルプ"]),
   };
@@ -223,7 +231,6 @@ async function verifyLineSignature(
   signature: string,
   channelSecret: string
 ): Promise<boolean> {
-  // HMAC-SHA256 を Base64 で比較（LINE仕様）
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(channelSecret),
@@ -239,7 +246,6 @@ async function verifyLineSignature(
 function toBase64(bytes: Uint8Array): string {
   let binary = "";
   for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-  // btoa は ASCII 前提。Workers 環境ではOK
   return btoa(binary);
 }
 
@@ -301,9 +307,9 @@ function idxKeyOf(userId: string) {
 function parseReserveCommand(text: string):
   | { ok: true; value: { year: number; month: number; day: number; time: string; service: string } }
   | { ok: false } {
-  // 例: /reserve 9/25 15:00 カット
+  // 例: /reserve 9/25 15:00 カット  or  /reserve 2025-09-25 15:00 カット
   const m = text.match(
-    /\/reserve\s+([0-9]{1,4}[-\/][0-9]{1,2}[-\/]?[0-9]{1,2}?)\s+([0-2]?\d:[0-5]\d)\s+(.+)/i
+    /\/reserve\s+([0-9]{1,4}[\/-][0-9]{1,2}(?:[\/-][0-9]{1,2})?)\s+([0-2]?\d:[0-5]\d)\s+(.+)/i
   );
   if (!m) return { ok: false };
 
@@ -320,22 +326,21 @@ function parseReserveCommand(text: string):
   if (parts.length === 2) {
     const now = nowJST();
     year = now.getFullYear();
-    month = parseInt(parts[0]);
-    day = parseInt(parts[1]);
+    month = parseInt(parts[0], 10);
+    day = parseInt(parts[1], 10);
     // 過去日付なら翌年にロール
     const iso = toISOJST(year, month, day, time);
     if (new Date(iso) < now) {
       year = year + 1;
     }
   } else if (parts.length === 3) {
-    year = parseInt(parts[0]);
-    month = parseInt(parts[1]);
-    day = parseInt(parts[2]);
+    year = parseInt(parts[0], 10);
+    month = parseInt(parts[1], 10);
+    day = parseInt(parts[2], 10);
   } else {
     return { ok: false };
   }
 
-  // 簡易バリデーション
   if (month < 1 || month > 12 || day < 1 || day > 31) return { ok: false };
 
   return { ok: true, value: { year, month, day, time, service } };
@@ -350,7 +355,7 @@ function nowISOJST(): string {
   return toISOOffset(d);
 }
 function toISOJST(year: number, month: number, day: number, hhmm: string): string {
-  const [hh, mm] = hhmm.split(":").map((v) => parseInt(v));
+  const [hh, mm] = hhmm.split(":").map((v) => parseInt(v, 10));
   // ISO with +09:00 固定
   const date = `${year}-${pad(month)}-${pad(day)}T${pad(hh)}:${pad(mm)}:00+09:00`;
   return date;
