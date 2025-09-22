@@ -10,18 +10,15 @@ export interface Env {
  * POST /api/line/webhook
  */
 export default {
-  async fetch(req: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
+  async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
 
-    // Healthcheck
-    if (url.pathname === "/__ping") {
-      return new Response("ok", { status: 200 });
-    }
+    if (url.pathname === "/__ping") return new Response("ok", { status: 200 });
 
     if (url.pathname === "/api/line/webhook" && req.method === "POST") {
       const bodyText = await req.text();
 
-      // 署名検証（LINE仕様: HMAC-SHA256 + Base64）
+      // 署名検証
       const isValid = await verifyLineSignature(
         bodyText,
         req.headers.get("x-line-signature") || "",
@@ -31,11 +28,10 @@ export default {
 
       const payload = JSON.parse(bodyText);
 
-      // 複数イベントに備えて順次処理
       for (const ev of payload.events || []) {
         if (ev.type === "message" && ev.message?.type === "text") {
           const userId = ev.source?.userId as string | undefined;
-          const text: string = (ev.message.text || "");
+          const text: string = ev.message.text ?? "";
           const replyToken: string | undefined = ev.replyToken;
           if (!userId || !replyToken) continue;
 
@@ -68,24 +64,16 @@ export default {
 /* =========================
  * Command Router
  * ========================= */
-async function handleCommand(
-  text: string,
-  userId: string,
-  env: Env
-): Promise<LineMessage> {
-  // --- 正規化（ここがポイント！） ---
-  // 1) 最初の1行だけコマンドとして採用
-  const firstLine = (text || "").split(/\r?\n/)[0].trim();
-  // 2) 先頭が全角スラッシュなら半角に、連続スペースは1つに
-  const normalized = firstLine
-    .replace(/^／/, "/")
-    .replace(/\s+/g, " ");
+async function handleCommand(text: string, userId: string, env: Env): Promise<LineMessage> {
+  // --- 正規化（ゼロ幅/全角/余分スペース対策）---
+  const firstLine = (text ?? "").split(/\r?\n/)[0]; // 最初の1行だけ採用
+  const cleaned = firstLine.replace(/[\u200B-\u200D\uFEFF]/g, ""); // ZW chars除去
+  const normalized = cleaned.normalize("NFKC").trim().replace(/\s+/g, " "); // 全角→半角 等
   const lower = normalized.toLowerCase();
 
-  // ↓必要ならデバッグ用ログ（確認が終わったらコメントアウトのままでOK）
-  // console.log("FIRST=", firstLine, "NORM=", normalized);
+  // ここを見たい時は一時的に↓を開ける
+  // console.log("RAW=", JSON.stringify(text), "NORM=", normalized);
 
-  // 判定は正規表現で堅く
   if (/^\/reserve\b/i.test(normalized)) {
     const parsed = parseReserveCommand(normalized);
     if (!parsed.ok) {
@@ -146,46 +134,26 @@ async function handleCommand(
         return `${stat} ${r.id}  ${r.date} ${r.time}  ${r.service}`;
       })
       .join("\n");
-    return {
-      type: "text",
-      text: `📒 あなたの予約（最新10件）\n${lines}\n\nキャンセルは \`/cancel <ID>\``,
-    };
+    return { type: "text", text: `📒 あなたの予約（最新10件）\n${lines}\n\nキャンセルは \`/cancel <ID>\`` };
   }
 
   if (/^\/cancel\b/i.test(lower)) {
     const m = normalized.split(/\s+/);
-    if (m.length < 2) {
-      return {
-        type: "text",
-        text: "キャンセルする予約IDを指定してね 👉 `/cancel abc12345`",
-      };
-    }
+    if (m.length < 2) return { type: "text", text: "キャンセルする予約IDを指定してね 👉 `/cancel abc12345`" };
     const id = m[1];
     const r = await getReservation(env, userId, id);
-    if (!r) {
-      return { type: "text", text: `ID ${id} の予約が見つからないよ😢` };
-    }
-    if (r.status === "canceled") {
-      return { type: "text", text: `ID ${id} はすでにキャンセル済みだよ👌` };
-    }
+    if (!r) return { type: "text", text: `ID ${id} の予約が見つからないよ😢` };
+    if (r.status === "canceled") return { type: "text", text: `ID ${id} はすでにキャンセル済みだよ👌` };
     r.status = "canceled";
     r.updatedAt = nowISOJST();
     await saveReservation(env, r);
-    return {
-      type: "text",
-      text: `🧹 キャンセル完了！\nID: ${id}\n${r.date} ${r.time}  ${r.service}`,
-      quickReply: quick(["/my", "ヘルプ"]),
-    };
+    return { type: "text", text: `🧹 キャンセル完了！\nID: ${id}\n${r.date} ${r.time}  ${r.service}`, quickReply: quick(["/my", "ヘルプ"]) };
   }
 
   if (["help", "/help", "ヘルプ"].some((k) => lower.startsWith(k))) {
     return {
       type: "text",
-      text:
-        "📚 コマンド一覧\n" +
-        "・予約: `/reserve 9/25 15:00 カット`\n" +
-        "・一覧: `/my`\n" +
-        "・取消: `/cancel <ID>`",
+      text: "📚 コマンド一覧\n・予約: `/reserve 9/25 15:00 カット`\n・一覧: `/my`\n・取消: `/cancel <ID>`",
       quickReply: quick(["/reserve 9/25 15:00 カット", "/my"]),
     };
   }
@@ -193,10 +161,7 @@ async function handleCommand(
   // 既定: 軽いヘルプ + エコー
   return {
     type: "text",
-    text:
-      "echo: " +
-      firstLine +
-      "\n\n予約するなら `/reserve 9/25 15:00 カット` って打ってね💇‍♂️",
+    text: "echo: " + normalized + "\n\n予約するなら `/reserve 9/25 15:00 カット` って打ってね💇‍♂️",
     quickReply: quick(["/reserve 9/25 15:00 カット", "/my", "ヘルプ"]),
   };
 }
@@ -204,40 +169,19 @@ async function handleCommand(
 /* =========================
  * LINE Helpers
  * ========================= */
-type LineMessage =
-  | { type: "text"; text: string; quickReply?: any }
-  | any; // 拡張用（Flex 等）
+type LineMessage = { type: "text"; text: string; quickReply?: any } | any;
 
 async function lineReply(token: string, replyToken: string, message: LineMessage) {
   const res = await fetch("https://api.line.me/v2/bot/message/reply", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      replyToken,
-      messages: [message],
-    }),
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ replyToken, messages: [message] }),
   });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`LINE Reply Error: ${res.status} ${t}`);
-  }
+  if (!res.ok) throw new Error(`LINE Reply Error: ${res.status} ${await res.text()}`);
 }
 
-async function verifyLineSignature(
-  bodyText: string,
-  signature: string,
-  channelSecret: string
-): Promise<boolean> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(channelSecret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign", "verify"]
-  );
+async function verifyLineSignature(bodyText: string, signature: string, channelSecret: string): Promise<boolean> {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(channelSecret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
   const sigBuf = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(bodyText));
   const base64 = toBase64(new Uint8Array(sigBuf));
   return base64 === signature;
@@ -257,9 +201,9 @@ interface Reservation {
   id: string;
   userId: string;
   service: string;
-  iso: string; // 2025-09-25T15:00:00+09:00
-  date: string; // YYYY-MM-DD
-  time: string; // HH:mm
+  iso: string;   // 2025-09-25T15:00:00+09:00
+  date: string;  // YYYY-MM-DD
+  time: string;  // HH:mm
   status: ReservationStatus;
   createdAt: string;
   updatedAt: string;
@@ -268,23 +212,19 @@ interface Reservation {
 async function saveReservation(env: Env, r: Reservation) {
   const key = resvKey(r.userId, r.id);
   await env.LINE_BOOKING.put(key, JSON.stringify(r));
-  // index 更新
   const idxKey = idxKeyOf(r.userId);
   const current = (await env.LINE_BOOKING.get(idxKey, "json")) as string[] | null;
   const next = Array.isArray(current) ? current : [];
-  if (!next.includes(r.id)) next.unshift(r.id); // 新規を先頭へ
+  if (!next.includes(r.id)) next.unshift(r.id);
   await env.LINE_BOOKING.put(idxKey, JSON.stringify(next.slice(0, 100)));
 }
 
 async function getReservation(env: Env, userId: string, id: string) {
-  const key = resvKey(userId, id);
-  const json = await env.LINE_BOOKING.get(key, "json");
-  return json as Reservation | null;
+  return (await env.LINE_BOOKING.get(resvKey(userId, id), "json")) as Reservation | null;
 }
 
 async function listReservations(env: Env, userId: string, limit = 10) {
-  const idxKey = idxKeyOf(userId);
-  const ids = ((await env.LINE_BOOKING.get(idxKey, "json")) as string[] | null) || [];
+  const ids = ((await env.LINE_BOOKING.get(idxKeyOf(userId), "json")) as string[] | null) || [];
   const pick = ids.slice(0, limit);
   const results: Reservation[] = [];
   for (const id of pick) {
@@ -308,59 +248,44 @@ function parseReserveCommand(text: string):
   | { ok: true; value: { year: number; month: number; day: number; time: string; service: string } }
   | { ok: false } {
   // 例: /reserve 9/25 15:00 カット  or  /reserve 2025-09-25 15:00 カット
-  const m = text.match(
-    /\/reserve\s+([0-9]{1,4}[\/-][0-9]{1,2}(?:[\/-][0-9]{1,2})?)\s+([0-2]?\d:[0-5]\d)\s+(.+)/i
-  );
+  const m = text.match(/\/reserve\s+([0-9]{1,4}[\/-][0-9]{1,2}(?:[\/-][0-9]{1,2})?)\s+([0-2]?\d:[0-5]\d)\s+(.+)/i);
   if (!m) return { ok: false };
 
   const dateRaw = m[1].replace(/\./g, "/").replace(/-/g, "/");
   const time = m[2];
   const service = m[3].trim();
 
-  // dateRaw: "9/25" or "2025/09/25"
   const parts = dateRaw.split("/");
-  let year: number;
-  let month: number;
-  let day: number;
+  let year: number, month: number, day: number;
 
   if (parts.length === 2) {
     const now = nowJST();
     year = now.getFullYear();
     month = parseInt(parts[0], 10);
     day = parseInt(parts[1], 10);
-    // 過去日付なら翌年にロール
     const iso = toISOJST(year, month, day, time);
-    if (new Date(iso) < now) {
-      year = year + 1;
-    }
+    if (new Date(iso) < now) year = year + 1; // 過去なら翌年へ
   } else if (parts.length === 3) {
     year = parseInt(parts[0], 10);
     month = parseInt(parts[1], 10);
     day = parseInt(parts[2], 10);
-  } else {
-    return { ok: false };
-  }
+  } else return { ok: false };
 
   if (month < 1 || month > 12 || day < 1 || day > 31) return { ok: false };
-
   return { ok: true, value: { year, month, day, time, service } };
 }
 
 function nowJST(): Date {
-  // Cloudflare は UTC。JST は +9h
   return new Date(Date.now() + 9 * 60 * 60 * 1000);
 }
 function nowISOJST(): string {
-  const d = nowJST();
-  return toISOOffset(d);
+  return toISOOffset(nowJST());
 }
 function toISOJST(year: number, month: number, day: number, hhmm: string): string {
   const [hh, mm] = hhmm.split(":").map((v) => parseInt(v, 10));
-  // ISO with +09:00 固定
-  const date = `${year}-${pad(month)}-${pad(day)}T${pad(hh)}:${pad(mm)}:00+09:00`;
-  return date;
+  return `${year}-${pad(month)}-${pad(day)}T${pad(hh)}:${pad(mm)}:00+09:00`;
 }
-function toISOOffset(d: Date, offsetMinutes = 540 /* 9h */): string {
+function toISOOffset(d: Date, offsetMinutes = 540): string {
   const t = new Date(d.getTime() - offsetMinutes * 60 * 1000);
   const y = t.getUTCFullYear();
   const m = pad(t.getUTCMonth() + 1);
@@ -378,7 +303,6 @@ function pad(n: number) {
   return n.toString().padStart(2, "0");
 }
 function shortId(): string {
-  // 8桁の簡易ID（必要なら後で強化）
   const arr = new Uint8Array(4);
   crypto.getRandomValues(arr);
   return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
