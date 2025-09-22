@@ -21,7 +21,7 @@ export default {
     if (url.pathname === "/api/line/webhook" && req.method === "POST") {
       const bodyText = await req.text();
 
-      // 署名検証
+      // 署名検証（必須）
       const isValid = await verifyLineSignature(
         bodyText,
         req.headers.get("x-line-signature") || "",
@@ -30,12 +30,13 @@ export default {
       if (!isValid) return new Response("invalid signature", { status: 401 });
 
       const payload = JSON.parse(bodyText);
-      // 複数イベントに備えて順次処理
+
+      // 複数イベントを順次処理
       for (const ev of payload.events || []) {
         if (ev.type === "message" && ev.message?.type === "text") {
-          const userId = ev.source?.userId;
-          const text: string = ev.message.text.trim();
-          const replyToken: string = ev.replyToken;
+          const userId = ev.source?.userId as string | undefined;
+          const text: string = (ev.message.text || "").trim();
+          const replyToken: string | undefined = ev.replyToken;
 
           if (!userId || !replyToken) continue;
 
@@ -51,7 +52,10 @@ export default {
         } else if (ev.type === "follow" && ev.replyToken) {
           await lineReply(env.LINE_CHANNEL_ACCESS_TOKEN, ev.replyToken, {
             type: "text",
-            text: "フォローありがと💚\n予約は `/reserve 9/25 15:00 カット` みたいに打ってね！\n一覧は `/my`、キャンセルは `/cancel <ID>` ✨",
+            text:
+              "フォローありがと💚\n" +
+              "予約は `/reserve 9/25 15:00 カット` みたいに打ってね！\n" +
+              "一覧は `/my`、キャンセルは `/cancel <ID>` ✨",
           });
         }
       }
@@ -194,7 +198,7 @@ async function handleCommand(
  * ========================= */
 type LineMessage =
   | { type: "text"; text: string; quickReply?: any }
-  | any; // 拡張余地（Flex 等）
+  | any; // 拡張用（Flex 等）
 
 async function lineReply(token: string, replyToken: string, message: LineMessage) {
   const res = await fetch("https://api.line.me/v2/bot/message/reply", {
@@ -219,6 +223,7 @@ async function verifyLineSignature(
   signature: string,
   channelSecret: string
 ): Promise<boolean> {
+  // HMAC-SHA256 を Base64 で比較（LINE仕様）
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(channelSecret),
@@ -226,14 +231,16 @@ async function verifyLineSignature(
     false,
     ["sign", "verify"]
   );
-  const sig = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(bodyText)
-  );
-  const hash = btoa(String.fromCharCode(...new Uint8Array(sig)));
-  // LINE は base64 なので一致比較
-  return hash === signature;
+  const sigBuf = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(bodyText));
+  const base64 = toBase64(new Uint8Array(sigBuf));
+  return base64 === signature;
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  // btoa は ASCII 前提。Workers 環境ではOK
+  return btoa(binary);
 }
 
 /* =========================
@@ -259,8 +266,7 @@ async function saveReservation(env: Env, r: Reservation) {
   const idxKey = idxKeyOf(r.userId);
   const current = (await env.LINE_BOOKING.get(idxKey, "json")) as string[] | null;
   const next = Array.isArray(current) ? current : [];
-  if (!next.includes(r.id)) next.unshift(r.id); // 新しいのを先頭へ
-  // インデックスを最大100件程度に抑制（任意）
+  if (!next.includes(r.id)) next.unshift(r.id); // 新規を先頭へ
   await env.LINE_BOOKING.put(idxKey, JSON.stringify(next.slice(0, 100)));
 }
 
@@ -296,7 +302,9 @@ function parseReserveCommand(text: string):
   | { ok: true; value: { year: number; month: number; day: number; time: string; service: string } }
   | { ok: false } {
   // 例: /reserve 9/25 15:00 カット
-  const m = text.match(/\/reserve\s+([0-9]{1,4}[-\/][0-9]{1,2}[-\/]?[0-9]{1,2}?)\s+([0-2]?\d:[0-5]\d)\s+(.+)/i);
+  const m = text.match(
+    /\/reserve\s+([0-9]{1,4}[-\/][0-9]{1,2}[-\/]?[0-9]{1,2}?)\s+([0-2]?\d:[0-5]\d)\s+(.+)/i
+  );
   if (!m) return { ok: false };
 
   const dateRaw = m[1].replace(/\./g, "/").replace(/-/g, "/");
@@ -365,7 +373,7 @@ function pad(n: number) {
   return n.toString().padStart(2, "0");
 }
 function shortId(): string {
-  // 8桁の簡易ID（衝突リスクは低いがゼロではない。必要に応じて強化してね）
+  // 8桁の簡易ID（必要なら後で強化）
   const arr = new Uint8Array(4);
   crypto.getRandomValues(arr);
   return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
