@@ -1,3 +1,64 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>SaaS Starter</title></head>
-<body><h1>SaaS Starter</h1><p>It works ??</p></body></html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>SaaS Starter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body{font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding:24px; line-height:1.6;}
+      form, .card{max-width:560px; padding:16px; border:1px solid #ddd; border-radius:12px; margin:16px 0;}
+      input,button{font:inherit; padding:8px 12px;}
+      input{width:100%; box-sizing:border-box; margin:6px 0 12px;}
+      button{cursor:pointer}
+      code{background:#f5f5f5; padding:2px 6px; border-radius:6px;}
+      .ok{color:#0a7a2f}
+      .err{color:#c22727}
+    </style>
+  </head>
+  <body>
+    <h1>SaaS Starter</h1>
+    <p>下のフォームから <code>/api/bookings</code> に予約をPOSTします。</p>
+
+    <form id="f">
+      <label>Store ID</label>
+      <input name="storeId" value="default" />
+      <label>Customer ID</label>
+      <input name="customerId" value="web-demo" />
+      <label>Start (ISO)</label>
+      <input name="start" value="" />
+      <label>End (ISO)</label>
+      <input name="end" value="" />
+      <button type="submit">Create booking</button>
+    </form>
+
+    <div class="card">
+      <div id="out"></div>
+    </div>
+
+    <script>
+      // デフォルトは今＋1h/＋1.5h
+      const start = new Date(Date.now() + 60*60*1000);
+      const end = new Date(Date.now() + 90*60*1000);
+      document.querySelector('input[name="start"]').value = start.toISOString();
+      document.querySelector('input[name="end"]').value = end.toISOString();
+
+      document.getElementById('f').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.currentTarget);
+        const body = Object.fromEntries(fd.entries());
+        const res = await fetch('/api/bookings', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(body)
+        });
+        const out = document.getElementById('out');
+        if (res.ok) {
+          const json = await res.json();
+          out.innerHTML = `<p class="ok">✅ Created: <code>${json.id}</code></p><pre>${JSON.stringify(json, null, 2)}</pre>`;
+        } else {
+          out.innerHTML = `<p class="err">❌ Error ${res.status}</p><pre>${await res.text()}</pre>`;
+        }
+      });
+    </script>
+  </body>
+</html>
