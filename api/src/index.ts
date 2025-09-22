@@ -5,7 +5,6 @@ export default {
     if (url.pathname === "/__ping") return new Response("ok");
 
     if (url.pathname === "/api/line/webhook" && req.method === "POST") {
-      // ここでは署名検証をスキップ（あとで追加）
       const body = await req.json().catch(() => ({}));
       const events = body?.events ?? [];
 
