@@ -3,4 +3,12 @@ main = "src/index.ts"
 compatibility_date = "2024-11-01"
 
 [vars]
-BASE_URL = "http://localhost:8787"
+BASE_URL = "https://saas-api.hekuijincun.workers.dev"
+
+# ← KV を使うので追加
+[[kv_namespaces]]
+binding = "LINE_BOOKING"
+# id は自分の環境のものに差し替え
+# 初回は以下で作成 → wrangler kv:namespace create LINE_BOOKING
+# その出力に出る "id" を貼る
+id = "REPLACE_WITH_YOUR_KV_ID"
