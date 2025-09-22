@@ -1,14 +1,43 @@
+# ==============================
+# Worker 基本
+# ==============================
 name = "saas-api"
 main = "src/index.ts"
-compatibility_date = "2024-11-01"
+compatibility_date = "2024-10-02"
 
+# Node互換が要らなければ消してOK（btoa/crypto.subtleは標準で使える）
+# compatibility_flags = ["nodejs_compat"]
+
+# ==============================
+# 環境変数（平文）
+# ==============================
 [vars]
-BASE_URL = "https://saas-api.hekuijincun.workers.dev"
+TZ = "Asia/Tokyo"
 
-# ← KV を使うので追加
+# ==============================
+# KV バインド
+# → binding名 "LINE_BOOKING" で Worker から使える
+# ==============================
 [[kv_namespaces]]
 binding = "LINE_BOOKING"
-# id は自分の環境のものに差し替え
-# 初回は以下で作成 → wrangler kv:namespace create LINE_BOOKING
-# その出力に出る "id" を貼る
-id = "22103efd0bd04365a2ec050a24b3dbc4"
+id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"        # ← 本番用のKV Namespace ID
+preview_id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" # ← プレビュー/開発用のKV Namespace ID
+
+# ==============================
+# Secrets（wrangler secret で登録するので toml には書かない）
+# - LINE_CHANNEL_ACCESS_TOKEN
+# - LINE_CHANNEL_SECRET
+# ==============================
+
+# ==============================
+# ローカル開発（任意）
+# ==============================
+[dev]
+port = 8787
+local_protocol = "http"
+
+# ==============================
+# 観測（任意）
+# ==============================
+[observability]
+enabled = true
