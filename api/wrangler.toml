@@ -11,4 +11,4 @@ binding = "LINE_BOOKING"
 # id は自分の環境のものに差し替え
 # 初回は以下で作成 → wrangler kv:namespace create LINE_BOOKING
 # その出力に出る "id" を貼る
-id = "REPLACE_WITH_YOUR_KV_ID"
+id = "22103efd0bd04365a2ec050a24b3dbc4"
