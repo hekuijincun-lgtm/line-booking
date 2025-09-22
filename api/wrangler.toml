@@ -1,43 +1,18 @@
-# ==============================
-# Worker 基本
-# ==============================
 name = "saas-api"
 main = "src/index.ts"
 compatibility_date = "2024-10-02"
 
-# Node互換が要らなければ消してOK（btoa/crypto.subtleは標準で使える）
-# compatibility_flags = ["nodejs_compat"]
-
-# ==============================
-# 環境変数（平文）
-# ==============================
 [vars]
 TZ = "Asia/Tokyo"
 
-# ==============================
-# KV バインド
-# → binding名 "LINE_BOOKING" で Worker から使える
-# ==============================
 [[kv_namespaces]]
 binding = "LINE_BOOKING"
-id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"        # ← 本番用のKV Namespace ID
-preview_id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" # ← プレビュー/開発用のKV Namespace ID
+id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"        # ← 後で差し替え
+preview_id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" # ← 後で差し替え
 
-# ==============================
-# Secrets（wrangler secret で登録するので toml には書かない）
-# - LINE_CHANNEL_ACCESS_TOKEN
-# - LINE_CHANNEL_SECRET
-# ==============================
-
-# ==============================
-# ローカル開発（任意）
-# ==============================
 [dev]
 port = 8787
 local_protocol = "http"
 
-# ==============================
-# 観測（任意）
-# ==============================
 [observability]
 enabled = true
