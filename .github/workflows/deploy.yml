@@ -15,14 +15,13 @@ jobs:
         with:
           node-version: "20"
       - run: npm i -g wrangler
-      - name: Deploy Workers (API)
-        run: wrangler deploy --minify
+      - run: wrangler deploy --minify
         env:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_API_TOKEN:  ${{ secrets.CF_API_TOKEN }}
           BASE_URL:      ${{ secrets.BASE_URL }}
-          LINE_CHANNEL_SECRET:        ${{ secrets.LINE_CHANNEL_SECRET }}
-          LINE_CHANNEL_ACCESS_TOKEN:  ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_CHANNEL_SECRET: ${{ secrets.LINE_CHANNEL_SECRET }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
 
   pages:
     runs-on: ubuntu-latest
@@ -30,22 +29,13 @@ jobs:
       contents: read
       pages: write
       id-token: write
-    concurrency:
-      group: "pages"
-      cancel-in-progress: true
     defaults:
       run:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
         with:
-          enablement: true         # ← これでPagesサイトを自動作成/有効化
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: .                  # web/ 直下を公開
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          path: .
+      - uses: actions/deploy-pages@v4
