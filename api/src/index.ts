@@ -1,3 +1,4 @@
+// api/src/index.ts
 export interface Env {
   LINE_BOOKING: KVNamespace;
   LINE_CHANNEL_ACCESS_TOKEN: string;
@@ -5,39 +6,36 @@ export interface Env {
   TZ?: string; // default Asia/Tokyo
 }
 
+/* =========================
+ * Worker entry
+ * ========================= */
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
-    if (url.pathname === "/__ping") return new Response("ok", { status: 200 });
+    if (url.pathname === "/__ping") return new Response("ok");
 
     if (url.pathname === "/api/line/webhook" && req.method === "POST") {
-      const bodyText = await req.text();
+      const raw = await req.text();
 
-      // LINE 署名検証
-      if (
-        !(await verifyLineSignature(
-          bodyText,
-          req.headers.get("x-line-signature") || "",
-          env.LINE_CHANNEL_SECRET
-        ))
-      ) {
-        return new Response("invalid signature", { status: 401 });
-      }
+      // verify LINE signature
+      const ok = await verifyLineSignature(
+        raw,
+        req.headers.get("x-line-signature") || "",
+        env.LINE_CHANNEL_SECRET
+      );
+      if (!ok) return new Response("invalid signature", { status: 401 });
 
-      const payload = JSON.parse(bodyText);
-
-      for (const ev of payload.events || []) {
-        if (ev.type === "message" && ev.message?.type === "text") {
+      const payload = JSON.parse(raw);
+      for (const ev of payload.events ?? []) {
+        if (ev.type === "message" && ev.message?.type === "text" && ev.replyToken) {
           const userId = ev.source?.userId as string | undefined;
-          const text: string = ev.message.text ?? "";
-          const replyToken: string | undefined = ev.replyToken;
-          if (!userId || !replyToken) continue;
+          if (!userId) continue;
 
           try {
-            const res = await handleCommand(text, userId, env);
-            await lineReply(env.LINE_CHANNEL_ACCESS_TOKEN, replyToken, res);
+            const msg = await handleCommand(ev.message.text ?? "", userId, env);
+            await lineReply(env.LINE_CHANNEL_ACCESS_TOKEN, ev.replyToken, msg);
           } catch (e: any) {
-            await lineReply(env.LINE_CHANNEL_ACCESS_TOKEN, replyToken, {
+            await lineReply(env.LINE_CHANNEL_ACCESS_TOKEN, ev.replyToken, {
               type: "text",
               text: `⚠️ エラー: ${e?.message ?? "不明なエラー"}`,
             });
@@ -46,14 +44,14 @@ export default {
           await lineReply(env.LINE_CHANNEL_ACCESS_TOKEN, ev.replyToken, {
             type: "text",
             text:
-              "フォローありがと💚\n" +
+              "フォローありがとう💚\n" +
               "予約は `/reserve 9/25 15:00 カット`\n" +
               "空き枠は `/slots 9/25`\n" +
-              "一覧は `/my`、キャンセルは `/cancel <ID>` ✨",
+              "一覧は `/my`、キャンセルは `/cancel <ID>`",
           });
         }
       }
-      return new Response("ok", { status: 200 });
+      return new Response("ok");
     }
 
     return new Response("Not Found", { status: 404 });
@@ -61,61 +59,47 @@ export default {
 };
 
 /* =========================
- * Command Router
+ * Command router
  * ========================= */
 async function handleCommand(text: string, userId: string, env: Env): Promise<LineMessage> {
-  // 1行目だけ + 不可視削除 + 正規化
-  const firstLineRaw = (text ?? "").split(/\r?\n/)[0];
-  const removedInvis = firstLineRaw.replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD\u00A0]/g, "");
-  const normalized = removedInvis.normalize("NFKC").trim().replace(/\s+/g, " ");
-  const stripped = normalized.replace(/^[^\p{L}\p{N}\/\\]+/u, "");
-  const canon = stripped.replace(/^[\\／]/, "/");
-  const lower = canon.toLowerCase();
+  const first = (text ?? "").split(/\r?\n/)[0];
+  const cleaned = stripInvisibles(first).normalize("NFKC");
 
-  // /debug: 文字診断
-  if (/^\/debug\b/.test(lower)) {
-    const hex = [...firstLineRaw].map(c => c.codePointAt(0)!.toString(16).padStart(4,"0")).join(" ");
-    return { type: "text", text: `RAW: ${firstLineRaw}\nHEX: ${hex}\nNORM: ${canon}` };
+  // /debug … : 文字状態の診断
+  if (/^[\\\/／]\s*debug\b/i.test(cleaned)) {
+    const hex = [...first].map(c => c.codePointAt(0)!.toString(16).padStart(4,"0")).join(" ");
+    const norm = stripLeadingGarbage(cleaned);
+    return { type: "text", text: `RAW: ${first}\nHEX: ${hex}\nNORM: ${norm}` };
   }
 
-  // /inspect: userId / iso / 決定論的ID / lock を表示
-  if (/^\/inspect\b/.test(lower)) {
-    const p = parseReserveCommand(canon.replace(/^\/\s*inspect\s+/i, "/reserve "));
-    if (!p.ok) return { type: "text", text: "使い方: `/inspect 9/25 15:00 カット`" };
-    const { year, month, day, time } = p.value;
-    const iso = toISOJST(year, month, day, time);
-    const id = await deterministicId(`${userId}|${iso}`);
-    const lockKey = lockKeyOf(userId, iso);
-    const locked = await env.LINE_BOOKING.get(lockKey);
-    return { type: "text", text: `userId: ${userId}\niso: ${iso}\nid(deterministic): ${id}\nlock:${locked ?? "<none>"}` };
-  }
+  // 正規化＆先頭ゴミ除去
+  const canon = stripLeadingGarbage(cleaned);
 
-  // ===== コマンド判定（★どこにあっても最初の /cmd を拾う★） =====
-  // 先頭ゴミや不可視文字、引用記号があってもマッチさせる
-  const cmdMatch = canon.match(/[\\\/／]\s*(reserve|my|cancel|cleanup|slots|set-slots)(?=\s|$)/i);
-  const cmd = cmdMatch ? cmdMatch[1].toLowerCase() : "";
+  // ★ 文中の最初の /cmd を拾う（先頭じゃなくてもOK）
+  const mCmd = canon.match(/[\\\/／]\s*(reserve|my|cancel|cleanup|slots|set-slots)(?=\s|$)/i);
+  const cmd = mCmd ? mCmd[1].toLowerCase() : "";
 
-  /* ---- /slots ---- */
+  /* ---------- /slots ---------- */
   if (cmd === "slots") {
-    // /slots [date?] 例) /slots 9/25 or /slots 2025-09-25
-    const p = parseDateOnly(canon.replace(/[\\\/／]\s*slots\s*/i, ""));
-    if (!p.ok) {
-      const today = todayJST();
-      const d = { y: today.getFullYear(), m: today.getMonth()+1, d: today.getDate() };
-      const dateStr = `${d.y}-${pad(d.m)}-${pad(d.d)}`;
-      const defaults = await getSlots(env, dateStr);
-      return buildSlotsFlex(dateStr, defaults, "カット");
-    }
-    const { y, m: mm, d } = p.value;
-    const dateStr = `${y}-${pad(mm)}-${pad(d)}`;
-    const slots = await getSlots(env, dateStr);
-    return buildSlotsFlex(dateStr, slots, "カット");
+    // 例) /slots 9/25  or /slots 2025-09-25
+    const arg = canon.replace(/[\\\/／]\s*slots/i, "").trim();
+    const p = parseDateOnly(arg);
+    if (!p.ok) return { type: "text", text: "使い方: `/slots 9/25` または `/slots 2025-09-25`" };
+    const dateStr = `${p.value.y}-${pad(p.value.m)}-${pad(p.value.d)}`;
+
+    const allSlots = await getSlots(env, dateStr);
+    const reservations = await listReservationsByDate(env, userId, dateStr);
+    const bookedTimes = new Set(reservations.filter(r => r.status === "booked").map(r => r.time));
+
+    // Flex（一括ボタン）
+    const available = allSlots.filter(t => !bookedTimes.has(t));
+    return buildSlotsFlex(dateStr, available, "カット");
   }
 
-  /* ---- /set-slots ---- */
+  /* ---------- /set-slots ---------- */
   if (cmd === "set-slots") {
-    // 例) /set-slots 2025-09-25 10:00,11:30,14:00
-    const m = canon.match(/[\\\/／]\s*set-slots\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\s+([0-2]?\d:[0-5]\d(?:\s*,\s*[0-2]?\d:[0-5]\d)*)/i);
+    // 例) /set-slots 2025-09-25 10:00,11:30,14:00,16:30
+    const m = canon.match(/[\\\/／]\s*set-slots\s+(\d{4}-\d{2}-\d{2})\s+([0-2]?\d:[0-5]\d(?:\s*,\s*[0-2]?\d:[0-5]\d)*)/i);
     if (!m) return { type: "text", text: "使い方: `/set-slots 2025-09-25 10:00,11:30,14:00`" };
     const dateStr = m[1];
     const arr = m[2].split(",").map(s => s.trim());
@@ -123,7 +107,7 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     return { type: "text", text: `✅ ${dateStr} の枠を更新したよ。\n${arr.join(", ")}`, quickReply: quick([`/slots ${dateStr}`]) };
   }
 
-  /* ---- /reserve ---- */
+  /* ---------- /reserve ---------- */
   if (cmd === "reserve") {
     const parsed = parseReserveCommand(canon);
     if (!parsed.ok) {
@@ -134,141 +118,111 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
           "・日付: M/D または YYYY-MM-DD\n・時間: HH:mm\n・サービス: 任意の文字列",
       };
     }
-
     const { year, month, day, time, service } = parsed.value;
+    const dateStr = `${year}-${pad(month)}-${pad(day)}`;
     const iso = toISOJST(year, month, day, time);
-    const id = await deterministicId(`${userId}|${iso}`);
-    const lockKey = lockKeyOf(userId, iso);
 
-    // 1) ロックでハードガード
-    const locked = await env.LINE_BOOKING.get(lockKey);
-    if (locked) {
-      const existing = await getReservation(env, userId, locked);
-      if (existing && existing.status === "booked") {
-        return {
-          type: "text",
-          text:
-            "⚠️ その日時は既に予約があります。\n" +
-            `ID: ${existing.id}\n日時: ${existing.date} ${existing.time}\n内容: ${existing.service}\n\n` +
-            "確認は /my、キャンセルは `/cancel <ID>`",
-          quickReply: quick(["/my", `/cancel ${existing.id}`]),
-        };
-      }
-    }
-
-    // 2) ソフトガード
+    // 重複チェック（同一 iso の予約があるか）
     const conflict = await findConflict(env, userId, iso);
     if (conflict) {
-      await env.LINE_BOOKING.put(lockKey, conflict.id);
       return {
         type: "text",
         text:
           "⚠️ その日時は既に予約があります。\n" +
           `ID: ${conflict.id}\n日時: ${conflict.date} ${conflict.time}\n内容: ${conflict.service}\n\n` +
           "別の時間で予約してね🙏",
-        quickReply: quick(["/my", `/cancel ${conflict.id}`]),
+        quickReply: quick(["/my", `/cancel ${conflict.id}`, `/slots ${dateStr}`]),
       };
     }
 
-    // 3) 保存
+    // 保存
+    const id = await deterministicId(`${userId}|${iso}`);
     const nowIso = nowISOJST();
-    const record: Reservation = {
+    const rec: Reservation = {
       id,
       userId,
       service,
       iso,
-      date: `${year}-${pad(month)}-${pad(day)}`,
+      date: dateStr,
       time,
       status: "booked",
       createdAt: nowIso,
       updatedAt: nowIso,
     };
-    await saveReservation(env, record);
-    await env.LINE_BOOKING.put(lockKey, id);
+    await saveReservation(env, rec);
 
     return {
       type: "text",
       text:
         `✅ 予約を保存したよ！\n` +
-        `ID: ${record.id}\n` +
-        `日時: ${record.date} ${record.time}\n` +
-        `内容: ${record.service}\n\n` +
-        `確認は /my、キャンセルは \`/cancel ${record.id}\``,
-      quickReply: quick(["/my", `/cancel ${record.id}`, `/slots ${record.date}`]),
+        `ID: ${rec.id}\n日時: ${rec.date} ${rec.time}\n内容: ${rec.service}\n\n` +
+        `確認は /my、キャンセルは \`/cancel ${rec.id}\``,
+      quickReply: quick(["/my", `/cancel ${rec.id}`, `/slots ${dateStr}`]),
     };
   }
 
-  /* ---- /my ---- */
+  /* ---------- /my ---------- */
   if (cmd === "my") {
     const list = await listReservations(env, userId, 10);
-    if (list.length === 0) {
+    if (!list.length) {
       return {
         type: "text",
         text: "まだ予約はないみたい👀\n`/reserve 9/25 15:00 カット` のように予約してみて！",
-        quickReply: quick(["/reserve 9/25 15:00 カット", "/slots 9/25", "ヘルプ"]),
+        quickReply: quick(["/reserve 9/25 15:00 カット", "/slots 9/25"]),
       };
     }
     const lines = list
-      .map((r) => {
-        const stat = r.status === "canceled" ? "❌" : "🟢";
-        return `${stat} ${r.id}  ${r.date} ${r.time}  ${r.service}`;
-      })
+      .map(r => `${r.status === "canceled" ? "❌" : "🟢"} ${r.id}  ${r.date} ${r.time}  ${r.service}`)
       .join("\n");
     return { type: "text", text: `📒 あなたの予約（最新10件）\n${lines}\n\nキャンセルは \`/cancel <ID>\`` };
   }
 
-  /* ---- /cancel ---- */
+  /* ---------- /cancel ---------- */
   if (cmd === "cancel") {
-    const idMatch = canon.match(/([a-f0-9]{8})/i);
-    if (!idMatch) return { type: "text", text: "キャンセルする予約IDを指定してね 👉 `/cancel abc12345`" };
-    const id = idMatch[1].toLowerCase();
+    const mid = canon.match(/([a-f0-9]{8})/i);
+    if (!mid) return { type: "text", text: "キャンセルする予約IDを指定してね 👉 `/cancel abc12345`" };
+    const id = mid[1].toLowerCase();
 
-    const r = await getReservation(env, userId, id);
-    if (!r) return { type: "text", text: `ID ${id} の予約が見つからないよ😢` };
-    if (r.status === "canceled") return { type: "text", text: `ID ${id} はすでにキャンセル済みだよ👌` };
+    const rec = await getReservation(env, userId, id);
+    if (!rec) return { type: "text", text: `ID ${id} の予約が見つからないよ😢` };
+    if (rec.status === "canceled") return { type: "text", text: `ID ${id} はすでにキャンセル済みだよ👌` };
 
-    r.status = "canceled";
-    r.updatedAt = nowISOJST();
-    await saveReservation(env, r);
-    await env.LINE_BOOKING.delete(lockKeyOf(userId, r.iso)); // ロック解除
+    rec.status = "canceled";
+    rec.updatedAt = nowISOJST();
+    await saveReservation(env, rec);
 
     return {
       type: "text",
-      text: `🧹 キャンセル完了！\nID: ${id}\n${r.date} ${r.time}  ${r.service}`,
-      quickReply: quick(["/my", `/slots ${r.date}`, "ヘルプ"]),
+      text: `🧹 キャンセル完了！\nID: ${id}\n${rec.date} ${rec.time}  ${rec.service}`,
+      quickReply: quick(["/my", `/slots ${rec.date}`]),
     };
   }
 
-  /* ---- /cleanup ---- */
+  /* ---------- /cleanup ---------- */
   if (cmd === "cleanup") {
-    const LIMIT = 40; // 分割実行で高速返信
-    const { kept, canceled, remaining } = await cleanupDuplicates(env, userId, LIMIT);
-
-    const lines = canceled.length ? `\nキャンセルID:\n- ${canceled.join("\n- ")}` : "";
-    const more  = remaining > 0 ? `\n\n（まだ ${remaining} 件あるので、もう一度 /cleanup を実行してね）` : "";
-
+    const { kept, canceled, remaining } = await cleanupDuplicates(env, userId, 40);
+    const more = remaining > 0 ? `\n（まだ ${remaining} 件あるので、もう一度 /cleanup を実行してね）` : "";
     return {
       type: "text",
-      text: `🧽 お掃除完了！\n保 持: ${kept} 件\n自動キャンセル: ${canceled.length} 件${lines}${more}`,
-      quickReply: quick(["/my", "/cleanup"]),
+      text: `🧽 お掃除完了！\n保持: ${kept} 件\n自動キャンセル: ${canceled.length} 件${more}`,
+      quickReply: quick(["/my"]),
     };
   }
 
-  // Default（軽いヘルプ）
+  // default help
   return {
     type: "text",
-    text: `予約するなら \`/reserve 9/25 15:00 カット\`、空き枠は \`/slots 9/25\` だよ💇‍♂️`,
-    quickReply: quick(["/reserve 9/25 15:00 カット", "/slots 9/25", "/my"]),
+    text: "予約するなら `/reserve 9/25 15:00 カット`、空き枠は `/slots 9/25` だよ💇‍♀️",
+    quickReply: quick(["/slots 9/25", "/my"]),
   };
 }
 
 /* =========================
- * LINE Helpers
+ * LINE helpers
  * ========================= */
 type LineMessage =
   | { type: "text"; text: string; quickReply?: any }
-  | { type: "flex"; altText: string; contents: any; quickReply?: any }
-  ;
+  | { type: "flex"; altText: string; contents: any; quickReply?: any };
 
 async function lineReply(token: string, replyToken: string, message: LineMessage) {
   const res = await fetch("https://api.line.me/v2/bot/message/reply", {
@@ -279,23 +233,19 @@ async function lineReply(token: string, replyToken: string, message: LineMessage
   if (!res.ok) throw new Error(`LINE Reply Error: ${res.status} ${await res.text()}`);
 }
 
-async function verifyLineSignature(bodyText: string, signature: string, channelSecret: string): Promise<boolean> {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(channelSecret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
-  const sigBuf = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(bodyText));
-  const base64 = toBase64(new Uint8Array(sigBuf));
+async function verifyLineSignature(body: string, signature: string, secret: string): Promise<boolean> {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body));
+  const base64 = btoa(String.fromCharCode(...new Uint8Array(sig)));
   return base64 === signature;
-}
-function toBase64(bytes: Uint8Array): string {
-  let binary = ""; for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
 }
 
 /* =========================
- * Domain: Reservation
+ * Domain / KV
  * ========================= */
 type ReservationStatus = "booked" | "canceled";
 interface Reservation {
-  id: string;   // 8-hex (deterministic)
+  id: string; // 8-hex
   userId: string;
   service: string;
   iso: string;  // 2025-09-25T15:00:00+09:00
@@ -306,149 +256,141 @@ interface Reservation {
   updatedAt: string;
 }
 
-/* ==== KV Keys ==== */
 function resvKey(userId: string, id: string) { return `resv:${userId}:${id}`; }
-function idxKeyOf(userId: string) { return `idx:${userId}`; }
-function lockKeyOf(userId: string, iso: string) { return `dedup:${userId}:${iso}`; }
+function idxKey(userId: string) { return `idx:${userId}`; }
 function slotsKey(dateStr: string) { return `slots:${dateStr}`; }
 
-/* ==== CRUD ==== */
 async function saveReservation(env: Env, r: Reservation) {
   await env.LINE_BOOKING.put(resvKey(r.userId, r.id), JSON.stringify(r));
-  const idxKey = idxKeyOf(r.userId);
-  const current = (await env.LINE_BOOKING.get(idxKey, "json")) as string[] | null;
-  const next = Array.isArray(current) ? current : [];
-  const filtered = next.filter(x => x !== r.id);
-  filtered.unshift(r.id); // 最新先頭
-  await env.LINE_BOOKING.put(idxKey, JSON.stringify(filtered.slice(0, 100)));
+  const ids = ((await env.LINE_BOOKING.get(idxKey(r.userId), "json")) as string[] | null) ?? [];
+  const next = [r.id, ...ids.filter(x => x !== r.id)].slice(0, 100);
+  await env.LINE_BOOKING.put(idxKey(r.userId), JSON.stringify(next));
 }
-
 async function getReservation(env: Env, userId: string, id: string) {
   return (await env.LINE_BOOKING.get(resvKey(userId, id), "json")) as Reservation | null;
 }
-
 async function listReservations(env: Env, userId: string, limit = 10) {
-  const ids = ((await env.LINE_BOOKING.get(idxKeyOf(userId), "json")) as string[] | null) || [];
-  const pick = ids.slice(0, limit);
-  const results: Reservation[] = [];
-  for (const id of pick) {
+  const ids = ((await env.LINE_BOOKING.get(idxKey(userId), "json")) as string[] | null) ?? [];
+  const out: Reservation[] = [];
+  for (const id of ids.slice(0, limit)) {
     const r = await getReservation(env, userId, id);
-    if (r) results.push(r);
+    if (r) out.push(r);
   }
-  return results;
+  return out;
 }
-
+async function listReservationsByDate(env: Env, userId: string, dateStr: string) {
+  const ids = ((await env.LINE_BOOKING.get(idxKey(userId), "json")) as string[] | null) ?? [];
+  const out: Reservation[] = [];
+  for (const id of ids) {
+    const r = await getReservation(env, userId, id);
+    if (r && r.date === dateStr) out.push(r);
+  }
+  return out;
+}
 async function getSlots(env: Env, dateStr: string): Promise<string[]> {
   const v = await env.LINE_BOOKING.get(slotsKey(dateStr), "json");
   if (Array.isArray(v)) return v as string[];
-  // デフォルト枠
-  return ["10:00", "13:00", "15:00"];
+  return ["10:00", "13:00", "15:00"]; // デフォルト
 }
 
-/* ==== Duplicate helpers ==== */
 async function findConflict(env: Env, userId: string, iso: string): Promise<Reservation | null> {
-  const ids = ((await env.LINE_BOOKING.get(idxKeyOf(userId), "json")) as string[] | null) || [];
+  const ids = ((await env.LINE_BOOKING.get(idxKey(userId), "json")) as string[] | null) ?? [];
   for (const id of ids) {
-    const r = (await env.LINE_BOOKING.get(resvKey(userId, id), "json")) as Reservation | null;
+    const r = await getReservation(env, userId, id);
     if (r && r.status === "booked" && r.iso === iso) return r;
   }
   return null;
 }
 
-// 分割・高速版：同一 iso の複数予約を自動キャンセル（maxScan 件だけ見る）
-async function cleanupDuplicates(
-  env: Env,
-  userId: string,
-  maxScan = 40
-): Promise<{ kept: number; canceled: string[]; remaining: number }> {
-  const idxKey = idxKeyOf(userId);
-  const ids = ((await env.LINE_BOOKING.get(idxKey, "json")) as string[] | null) || [];
-
-  const scanIds = ids.slice(0, maxScan); // 新しい順
-  const records: Reservation[] = [];
-  for (const id of scanIds) {
-    const r = (await env.LINE_BOOKING.get(resvKey(userId, id), "json")) as Reservation | null;
-    if (r) records.push(r);
+async function cleanupDuplicates(env: Env, userId: string, maxScan = 40) {
+  const ids = ((await env.LINE_BOOKING.get(idxKey(userId), "json")) as string[] | null) ?? [];
+  const scan = ids.slice(0, maxScan);
+  const seen = new Map<string, Reservation[]>();
+  for (const id of scan) {
+    const r = await getReservation(env, userId, id);
+    if (!r) continue;
+    const g = seen.get(r.iso) ?? [];
+    g.push(r); seen.set(r.iso, g);
   }
-
-  const byIso = new Map<string, Reservation[]>();
-  for (const r of records) {
-    const g = byIso.get(r.iso) ?? [];
-    g.push(r);
-    byIso.set(r.iso, g);
-  }
-
-  for (const [, group] of byIso) {
-    group.sort((a, b) => (a.updatedAt > b.updatedAt ? -1 : 1)); // 念のため新しい順に
-  }
-
   const canceled: string[] = [];
-  let keptCount = 0;
-
-  for (const [, group] of byIso) {
-    const booked = group.filter((g) => g.status === "booked");
-    if (booked.length === 0) continue;
-
-    const [keep, ...dups] = booked; // 最新1件だけ残す
-    keptCount++;
-
+  let kept = 0;
+  for (const [, group] of seen) {
+    const booked = group.filter(g => g.status === "booked")
+                        .sort((a,b)=> (a.updatedAt > b.updatedAt ? -1 : 1));
+    if (!booked.length) continue;
+    const [keep, ...dups] = booked;
+    kept++;
     for (const d of dups) {
       d.status = "canceled";
       d.updatedAt = nowISOJST();
       await saveReservation(env, d);
       canceled.push(d.id);
     }
-
-    await env.LINE_BOOKING.put(lockKeyOf(keep.userId, keep.iso), keep.id); // ロックを正に
   }
-
-  // idx をユニーク化して保存（大規模再構築は避ける）
-  const uniq = Array.from(new Set(ids));
-  await env.LINE_BOOKING.put(idxKey, JSON.stringify(uniq.slice(0, 100)));
-
-  const remaining = Math.max(ids.length - scanIds.length, 0);
-  return { kept: keptCount, canceled, remaining };
-}
-
-/* ==== Deterministic ID ==== */
-async function deterministicId(text: string): Promise<string> {
-  const buf = new TextEncoder().encode(text);
-  const digest = await crypto.subtle.digest("SHA-1", buf); // 20 bytes
-  const view = new Uint8Array(digest).slice(0, 4);         // 8-hex
-  return Array.from(view, b => b.toString(16).padStart(2, "0")).join("");
+  return { kept, canceled, remaining: Math.max(ids.length - scan.length, 0) };
 }
 
 /* =========================
- * Parsing / Time utils
+ * Utils
  * ========================= */
-function parseReserveCommand(text: string):
+function stripInvisibles(s: string) {
+  return s.replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD\u00A0]/g, "");
+}
+function stripLeadingGarbage(s: string) {
+  return s.trim().replace(/^[^\p{L}\p{N}\/\\]+/u, "").replace(/^[\\／]/, "/");
+}
+function pad(n: number) { return n.toString().padStart(2, "0"); }
+
+function todayJST(): Date { return new Date(Date.now() + 9 * 60 * 60 * 1000); }
+function nowISOJST(): string { return toISOOffset(new Date(), 9*60); }
+function toISOJST(y: number, m: number, d: number, hhmm: string) {
+  const [H,M] = hhmm.split(":").map(v=>parseInt(v,10));
+  return `${y}-${pad(m)}-${pad(d)}T${pad(H)}:${pad(M)}:00+09:00`;
+}
+function toISOOffset(d: Date, offsetMin: number) {
+  const t = new Date(d.getTime() + offsetMin*60*1000);
+  const yyyy = t.getUTCFullYear();
+  const mm = pad(t.getUTCMonth()+1);
+  const dd = pad(t.getUTCDate());
+  const HH = pad(t.getUTCHours());
+  const MM = pad(t.getUTCMinutes());
+  const SS = pad(t.getUTCSeconds());
+  const sign = offsetMin >= 0 ? "+" : "-";
+  const off = Math.abs(offsetMin);
+  const oh = pad(Math.floor(off/60));
+  const om = pad(off%60);
+  return `${yyyy}-${mm}-${dd}T${HH}:${MM}:${SS}${sign}${oh}:${om}`;
+}
+
+async function deterministicId(s: string) {
+  const buf = new TextEncoder().encode(s);
+  const dig = await crypto.subtle.digest("SHA-1", buf);
+  return Array.from(new Uint8Array(dig).slice(0,4), b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+function parseReserveCommand(s: string):
   | { ok: true; value: { year: number; month: number; day: number; time: string; service: string } }
   | { ok: false } {
-  // ex) /reserve 9/25 15:00 カット  or  /reserve 2025-09-25 15:00 カット
-  const m = text.match(/\/\s*reserve\s+([0-9]{1,4}[\/-][0-9]{1,2}(?:[\/-][0-9]{1,2})?)\s+([0-2]?\d:[0-5]\d)\s+(.+)/i);
+  const m = s.match(/\/\s*reserve\s+([0-9]{1,4}[\/-][0-9]{1,2}(?:[\/-][0-9]{1,2})?)\s+([0-2]?\d:[0-5]\d)\s+(.+)/i);
   if (!m) return { ok: false };
-
-  const dateRaw = m[1].replace(/\./g, "/").replace(/-/g, "/");
+  const dateRaw = m[1].replace(/-/g,"/").replace(/\./g,"/");
   const time = m[2];
   const service = m[3].trim();
 
   const parts = dateRaw.split("/");
-  let year: number, month: number, day: number;
-
+  let y: number, mo: number, d: number;
   if (parts.length === 2) {
-    const now = nowJST();
-    year = now.getFullYear();
-    month = parseInt(parts[0], 10);
-    day = parseInt(parts[1], 10);
-    if (new Date(toISOJST(year, month, day, time)) < now) year = year + 1; // 過去→翌年
+    const t = todayJST();
+    y = t.getFullYear();
+    mo = parseInt(parts[0],10);
+    d = parseInt(parts[1],10);
   } else if (parts.length === 3) {
-    year = parseInt(parts[0], 10);
-    month = parseInt(parts[1], 10);
-    day = parseInt(parts[2], 10);
+    y = parseInt(parts[0],10);
+    mo = parseInt(parts[1],10);
+    d = parseInt(parts[2],10);
   } else return { ok: false };
 
-  if (month < 1 || month > 12 || day < 1 || day > 31) return { ok: false };
-  return { ok: true, value: { year, month, day, time, service } };
+  return { ok: true, value: { year: y, month: mo, day: d, time, service } };
 }
 
 function parseDateOnly(arg: string):
@@ -457,56 +399,39 @@ function parseDateOnly(arg: string):
   const s = arg.trim();
   if (!s) {
     const t = todayJST();
-    return { ok: true, value: { y: t.getFullYear(), m: t.getMonth() + 1, d: t.getDate() } };
+    return { ok: true, value: { y: t.getFullYear(), m: t.getMonth()+1, d: t.getDate() } };
   }
-  // 9/25 or 2025-09-25
-  let y: number, m: number, d: number;
   if (/^\d{1,2}\/\d{1,2}$/.test(s)) {
     const t = todayJST();
-    y = t.getFullYear();
-    m = parseInt(s.split("/")[0], 10);
-    d = parseInt(s.split("/")[1], 10);
-  } else if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    [y, m, d] = s.split("-").map(x => parseInt(x, 10));
-  } else return { ok: false };
-  return { ok: true, value: { y, m, d } };
-}
-
-function todayJST(): Date { return new Date(Date.now() + 9 * 60 * 60 * 1000); }
-function nowJST(): Date { return todayJST(); }
-function nowISOJST(): string { return toISOOffset(nowJST()); }
-function toISOJST(year: number, month: number, day: number, hhmm: string): string {
-  const [hh, mm] = hhmm.split(":").map(v => parseInt(v, 10));
-  return `${year}-${pad(month)}-${pad(day)}T${pad(hh)}:${pad(mm)}:00+09:00`;
-}
-function toISOOffset(d: Date, offsetMinutes = 540): string {
-  const t = new Date(d.getTime() - offsetMinutes * 60 * 1000);
-  const y = t.getUTCFullYear(), m = pad(t.getUTCMonth() + 1), day = pad(t.getUTCDate());
-  const hh = pad(t.getUTCHours()), mm = pad(t.getUTCMinutes()), ss = pad(t.getUTCSeconds());
-  const sign = offsetMinutes >= 0 ? "+":"-"; const off = Math.abs(offsetMinutes);
-  const oh = pad(Math.floor(off/60)), om = pad(off%60);
-  return `${y}-${m}-${day}T${hh}:${mm}:${ss}${sign}${oh}:${om}`;
-}
-function pad(n: number) { return n.toString().padStart(2, "0"); }
-function quick(labels: string[]) {
-  return { items: labels.map(l => ({ type: "action", action: { type: "message", label: l.slice(0,20), text: l } })) };
+    const [mm,dd] = s.split("/").map(x=>parseInt(x,10));
+    return { ok: true, value: { y: t.getFullYear(), m: mm, d: dd } };
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y,mm,dd] = s.split("-").map(x=>parseInt(x,10));
+    return { ok: true, value: { y, m: mm, d: dd } };
+  }
+  return { ok: false };
 }
 
 /* =========================
- * Flex Message builders
+ * Flex builders
  * ========================= */
 function buildSlotsFlex(dateStr: string, times: string[], service: string): LineMessage {
-  // ボタン1つ=メッセージアクション（reserve テンプレ）
-  const [y, m, d] = dateStr.split("-").map(v => parseInt(v, 10));
+  const [y,m,d] = dateStr.split("-").map(n=>parseInt(n,10));
   const md = `${m}/${d}`;
-  const buttons = times.slice(0, 12).map((t) => ({
-    type: "button",
-    style: "primary",
-    action: { type: "message", label: t, text: `/reserve ${md} ${t} ${service}` },
-    height: "sm",
-  }));
+  const buttons = (times.length ? times : ["(空きなし)"]).slice(0,12).map(t => {
+    if (t === "(空きなし)") {
+      return { type: "button", style: "secondary", action: { type: "message", label: t, text: "/my" }, height: "sm" };
+    }
+    return {
+      type: "button",
+      style: "primary",
+      action: { type: "message", label: t, text: `/reserve ${md} ${t} ${service}` },
+      height: "sm",
+    };
+  });
 
-  const contents = {
+  const bubble = {
     type: "bubble",
     size: "mega",
     body: {
@@ -515,27 +440,25 @@ function buildSlotsFlex(dateStr: string, times: string[], service: string): Line
       spacing: "md",
       contents: [
         { type: "text", text: "空き枠", weight: "bold", size: "xl" },
-        { type: "text", text: dateStr, size: "sm", color: "#888888" },
+        { type: "text", text: dateStr, size: "sm", color: "#888" },
         { type: "separator", margin: "sm" },
-        {
-          type: "box",
-          layout: "vertical",
-          spacing: "sm",
-          margin: "md",
-          contents: buttons,
-        },
-        { type: "text", text: "※ タップで予約が作成されます", size: "xs", color: "#999999", margin: "lg" },
+        { type: "box", layout: "vertical", spacing: "sm", margin: "md", contents: buttons },
+        { type: "text", text: "※ ボタンで予約メッセが自動入力", size: "xs", color: "#999", margin: "lg" },
       ],
     },
     footer: {
       type: "box",
       layout: "horizontal",
       contents: [
-        { type: "button", style: "secondary", action: { type: "message", label: "他の日付", text: "/slots 9/25" } },
         { type: "button", style: "secondary", action: { type: "message", label: "マイ予約", text: "/my" } },
+        { type: "button", style: "secondary", action: { type: "message", label: "他の日", text: "/slots 9/25" } },
       ],
     },
   };
 
-  return { type: "flex", altText: `空き枠 ${dateStr}`, contents, quickReply: quick(["/my"]) };
+  return { type: "flex", altText: `空き枠 ${dateStr}`, contents: bubble, quickReply: quick(["/my"]) };
+}
+
+function quick(labels: string[]) {
+  return { items: labels.map(l => ({ type: "action", action: { type: "message", label: l.slice(0,20), text: l } })) };
 }
