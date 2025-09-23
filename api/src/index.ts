@@ -13,6 +13,7 @@ export default {
     if (url.pathname === "/api/line/webhook" && req.method === "POST") {
       const bodyText = await req.text();
 
+      // Verify LINE signature
       if (!(await verifyLineSignature(
         bodyText,
         req.headers.get("x-line-signature") || "",
@@ -27,6 +28,7 @@ export default {
           const text: string = ev.message.text ?? "";
           const replyToken: string | undefined = ev.replyToken;
           if (!userId || !replyToken) continue;
+
           try {
             const res = await handleCommand(text, userId, env);
             await lineReply(env.LINE_CHANNEL_ACCESS_TOKEN, replyToken, res);
@@ -57,7 +59,7 @@ export default {
  * Command Router
  * ========================= */
 async function handleCommand(text: string, userId: string, env: Env): Promise<LineMessage> {
-  // 正規化：不可視文字除去 + NFKC + 半角スラッシュ化 + スペース圧縮
+  // 1行目だけ + 不可視削除 + 正規化
   const firstLineRaw = (text ?? "").split(/\r?\n/)[0];
   const removedInvis = firstLineRaw.replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD\u00A0]/g, "");
   const normalized = removedInvis.normalize("NFKC").trim().replace(/\s+/g, " ");
@@ -65,14 +67,25 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
   const canon = stripped.replace(/^[\\／]/, "/");
   const lower = canon.toLowerCase();
 
-  // 診断
+  // /debug: 文字診断
   if (/^\/debug\b/.test(lower)) {
     const hex = [...firstLineRaw].map(c => c.codePointAt(0)!.toString(16).padStart(4,"0")).join(" ");
     return { type: "text", text: `RAW: ${firstLineRaw}\nHEX: ${hex}\nNORM: ${canon}` };
   }
 
-  // コマンド検出
-  const m = canon.match(/^\/\s*(reserve|my|cancel)\b/i);
+  // /inspect: 予約テキストを解析して userId / iso / 決定論的ID を表示
+  if (/^\/inspect\b/.test(lower)) {
+    const p = parseReserveCommand(canon.replace(/^\/\s*inspect\s+/i, "/reserve "));
+    if (!p.ok) return { type: "text", text: "使い方: `/inspect 9/25 15:00 カット`" };
+    const { year, month, day, time } = p.value;
+    const iso = toISOJST(year, month, day, time);
+    const id = await deterministicId(`${userId}|${iso}`);
+    const lockKey = lockKeyOf(userId, iso);
+    const locked = await env.LINE_BOOKING.get(lockKey);
+    return { type: "text", text: `userId: ${userId}\niso: ${iso}\nid(deterministic): ${id}\nlock:${locked ?? "<none>"}` };
+  }
+
+  const m = canon.match(/^\/\s*(reserve|my|cancel|cleanup)\b/i);
   const cmd = m?.[1]?.toLowerCase();
 
   /* ---- /reserve ---- */
@@ -81,42 +94,49 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     if (!parsed.ok) {
       return {
         type: "text",
-        text: "📝 予約コマンド例:\n`/reserve 9/25 15:00 カット`\n・日付: M/D または YYYY-MM-DD\n・時間: HH:mm\n・サービス: 任意の文字列",
+        text:
+          "📝 予約コマンド例:\n`/reserve 9/25 15:00 カット`\n" +
+          "・日付: M/D または YYYY-MM-DD\n・時間: HH:mm\n・サービス: 任意の文字列",
       };
     }
 
     const { year, month, day, time, service } = parsed.value;
     const iso = toISOJST(year, month, day, time);
+    const id = await deterministicId(`${userId}|${iso}`);
+    const lockKey = lockKeyOf(userId, iso);
 
-    // ① 既存一覧を見て重複チェック（KVの遅延用にソフトガード）
+    // 1) ロックキーでハードガード
+    const locked = await env.LINE_BOOKING.get(lockKey);
+    if (locked) {
+      const existing = await getReservation(env, userId, locked);
+      if (existing && existing.status === "booked") {
+        return {
+          type: "text",
+          text:
+            "⚠️ その日時は既に予約があります。\n" +
+            `ID: ${existing.id}\n日時: ${existing.date} ${existing.time}\n内容: ${existing.service}\n\n` +
+            "確認は /my、キャンセルは `/cancel <ID>`",
+          quickReply: quick(["/my", `/cancel ${existing.id}`]),
+        };
+      }
+    }
+
+    // 2) 念のためソフトガード（一覧確認）
     const conflict = await findConflict(env, userId, iso);
     if (conflict) {
+      // ロックを最新IDに合わせておく（自己修復）
+      await env.LINE_BOOKING.put(lockKey, conflict.id);
       return {
         type: "text",
         text:
           "⚠️ その日時は既に予約があります。\n" +
           `ID: ${conflict.id}\n日時: ${conflict.date} ${conflict.time}\n内容: ${conflict.service}\n\n` +
           "別の時間で予約してね🙏",
-        quickReply: quick(["/my", "ヘルプ"]),
+        quickReply: quick(["/my", `/cancel ${conflict.id}`]),
       };
     }
 
-    // ② ハードガード：ユーザー×日時から “決定論的ID” を作る
-    const id = await deterministicId(`${userId}|${iso}`);
-
-    // 既存レコードをキー直指定で確認（同IDなら“自然に上書き/同一扱い”になる）
-    const existing = await getReservation(env, userId, id);
-    if (existing && existing.status === "booked") {
-      return {
-        type: "text",
-        text:
-          "⚠️ その日時の予約はすでにあります。\n" +
-          `ID: ${existing.id}\n日時: ${existing.date} ${existing.time}\n内容: ${existing.service}\n\n` +
-          "確認は /my、キャンセルは `/cancel <ID>`",
-        quickReply: quick(["/my", `/cancel ${existing.id}`]),
-      };
-    }
-
+    // 3) 保存（ロックキーも設定）
     const nowIso = nowISOJST();
     const record: Reservation = {
       id,
@@ -131,6 +151,7 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     };
 
     await saveReservation(env, record);
+    await env.LINE_BOOKING.put(lockKey, id);
 
     return {
       type: "text",
@@ -154,12 +175,10 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
         quickReply: quick(["/reserve 9/25 15:00 カット", "ヘルプ"]),
       };
     }
-    const lines = list
-      .map((r) => {
-        const stat = r.status === "canceled" ? "❌" : "🟢";
-        return `${stat} ${r.id}  ${r.date} ${r.time}  ${r.service}`;
-      })
-      .join("\n");
+    const lines = list.map(r => {
+      const stat = r.status === "canceled" ? "❌" : "🟢";
+      return `${stat} ${r.id}  ${r.date} ${r.time}  ${r.service}`;
+    }).join("\n");
     return { type: "text", text: `📒 あなたの予約（最新10件）\n${lines}\n\nキャンセルは \`/cancel <ID>\`` };
   }
 
@@ -178,6 +197,9 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     r.updatedAt = nowISOJST();
     await saveReservation(env, r);
 
+    // ロックキーもクリア（念のため）
+    await env.LINE_BOOKING.delete(lockKeyOf(userId, r.iso));
+
     return {
       type: "text",
       text: `🧹 キャンセル完了！\nID: ${id}\n${r.date} ${r.time}  ${r.service}`,
@@ -185,7 +207,19 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     };
   }
 
-  // 既定: 軽いヘルプ + エコー
+  /* ---- /cleanup ---- */
+  if (cmd === "cleanup") {
+    const { kept, canceled } = await cleanupDuplicates(env, userId);
+    return {
+      type: "text",
+      text:
+        `🧽 お掃除完了！\n保持: ${kept} 件\n自動キャンセル: ${canceled.length} 件` +
+        (canceled.length ? `\n\nキャンセルID:\n- ${canceled.join("\n- ")}` : ""),
+      quickReply: quick(["/my"]),
+    };
+  }
+
+  // Default
   return {
     type: "text",
     text: `予約するなら \`/reserve 9/25 15:00 カット\` って打ってね💇‍♂️`,
@@ -223,12 +257,12 @@ function toBase64(bytes: Uint8Array): string {
  * ========================= */
 type ReservationStatus = "booked" | "canceled";
 interface Reservation {
-  id: string;          // 8 hex (deterministic)
+  id: string;   // 8-hex (deterministic)
   userId: string;
   service: string;
-  iso: string;         // 2025-09-25T15:00:00+09:00
-  date: string;        // YYYY-MM-DD
-  time: string;        // HH:mm
+  iso: string;  // 2025-09-25T15:00:00+09:00
+  date: string; // YYYY-MM-DD
+  time: string; // HH:mm
   status: ReservationStatus;
   createdAt: string;
   updatedAt: string;
@@ -239,9 +273,8 @@ async function saveReservation(env: Env, r: Reservation) {
   const idxKey = idxKeyOf(r.userId);
   const current = (await env.LINE_BOOKING.get(idxKey, "json")) as string[] | null;
   const next = Array.isArray(current) ? current : [];
-  // 同じIDは重複させない（先頭に寄せる）
   const filtered = next.filter(x => x !== r.id);
-  filtered.unshift(r.id);
+  filtered.unshift(r.id); // 最新先頭
   await env.LINE_BOOKING.put(idxKey, JSON.stringify(filtered.slice(0, 100)));
 }
 
@@ -262,9 +295,9 @@ async function listReservations(env: Env, userId: string, limit = 10) {
 
 function resvKey(userId: string, id: string) { return `resv:${userId}:${id}`; }
 function idxKeyOf(userId: string) { return `idx:${userId}`; }
+function lockKeyOf(userId: string, iso: string) { return `dedup:${userId}:${iso}`; }
 
-/* ==== Conflict helper ==== */
-// 一覧ベースの緩いガード（KVの遅延で漏れる可能性あり）
+/* ==== Duplicate helpers ==== */
 async function findConflict(env: Env, userId: string, iso: string): Promise<Reservation | null> {
   const ids = ((await env.LINE_BOOKING.get(idxKeyOf(userId), "json")) as string[] | null) || [];
   for (const id of ids) {
@@ -274,11 +307,47 @@ async function findConflict(env: Env, userId: string, iso: string): Promise<Rese
   return null;
 }
 
+// 重複を自動キャンセル
+async function cleanupDuplicates(env: Env, userId: string): Promise<{ kept: number; canceled: string[] }> {
+  const ids = ((await env.LINE_BOOKING.get(idxKeyOf(userId), "json")) as string[] | null) || [];
+  const records: Reservation[] = [];
+  for (const id of ids) {
+    const r = (await env.LINE_BOOKING.get(resvKey(userId, id), "json")) as Reservation | null;
+    if (r) records.push(r);
+  }
+  const byIso = new Map<string, Reservation[]>();
+  for (const r of records) {
+    const g = byIso.get(r.iso) ?? [];
+    g.push(r);
+    byIso.set(r.iso, g);
+  }
+
+  const canceled: string[] = [];
+  for (const [, group] of byIso) {
+    const booked = group.filter(g => g.status === "booked");
+    if (booked.length <= 1) continue;
+    const [keep, ...dups] = booked;
+    for (const d of dups) {
+      d.status = "canceled";
+      d.updatedAt = nowISOJST();
+      await saveReservation(env, d);
+      canceled.push(d.id);
+    }
+    // ロックキーは keep に合わせて修正
+    await env.LINE_BOOKING.put(lockKeyOf(keep.userId, keep.iso), keep.id);
+  }
+
+  const uniq = Array.from(new Set(ids));
+  await env.LINE_BOOKING.put(idxKeyOf(userId), JSON.stringify(uniq.slice(0, 100)));
+
+  return { kept: records.length - canceled.length, canceled };
+}
+
 /* ==== Deterministic ID ==== */
 async function deterministicId(text: string): Promise<string> {
   const buf = new TextEncoder().encode(text);
   const digest = await crypto.subtle.digest("SHA-1", buf); // 20 bytes
-  const view = new Uint8Array(digest).slice(0, 4);         // 先頭4バイト=8hex
+  const view = new Uint8Array(digest).slice(0, 4);         // 8-hex
   return Array.from(view, b => b.toString(16).padStart(2, "0")).join("");
 }
 
@@ -288,7 +357,7 @@ async function deterministicId(text: string): Promise<string> {
 function parseReserveCommand(text: string):
   | { ok: true; value: { year: number; month: number; day: number; time: string; service: string } }
   | { ok: false } {
-  // 例: /reserve 9/25 15:00 カット  or  /reserve 2025-09-25 15:00 カット
+  // ex) /reserve 9/25 15:00 カット  or  /reserve 2025-09-25 15:00 カット
   const m = text.match(/\/\s*reserve\s+([0-9]{1,4}[\/-][0-9]{1,2}(?:[\/-][0-9]{1,2})?)\s+([0-2]?\d:[0-5]\d)\s+(.+)/i);
   if (!m) return { ok: false };
 
@@ -330,10 +399,6 @@ function toISOOffset(d: Date, offsetMinutes = 540): string {
   return `${y}-${m}-${day}T${hh}:${mm}:${ss}${sign}${oh}:${om}`;
 }
 function pad(n: number) { return n.toString().padStart(2, "0"); }
-function shortId(): string {
-  const arr = new Uint8Array(4); crypto.getRandomValues(arr);
-  return Array.from(arr, b => b.toString(16).padStart(2, "0")).join("");
-}
 function quick(labels: string[]) {
   return { items: labels.map(l => ({ type: "action", action: { type: "message", label: l.slice(0,20), text: l } })) };
 }
