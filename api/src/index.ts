@@ -8,22 +8,16 @@ export interface Env {
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
-
     if (url.pathname === "/__ping") return new Response("ok", { status: 200 });
 
     if (url.pathname === "/api/line/webhook" && req.method === "POST") {
       const bodyText = await req.text();
 
-      // LINE署名検証
-      if (
-        !(await verifyLineSignature(
-          bodyText,
-          req.headers.get("x-line-signature") || "",
-          env.LINE_CHANNEL_SECRET
-        ))
-      ) {
-        return new Response("invalid signature", { status: 401 });
-      }
+      if (!(await verifyLineSignature(
+        bodyText,
+        req.headers.get("x-line-signature") || "",
+        env.LINE_CHANNEL_SECRET
+      ))) return new Response("invalid signature", { status: 401 });
 
       const payload = JSON.parse(bodyText);
 
@@ -33,7 +27,6 @@ export default {
           const text: string = ev.message.text ?? "";
           const replyToken: string | undefined = ev.replyToken;
           if (!userId || !replyToken) continue;
-
           try {
             const res = await handleCommand(text, userId, env);
             await lineReply(env.LINE_CHANNEL_ACCESS_TOKEN, replyToken, res);
@@ -64,26 +57,21 @@ export default {
  * Command Router
  * ========================= */
 async function handleCommand(text: string, userId: string, env: Env): Promise<LineMessage> {
-  // 1行目だけ対象 → 不可視文字除去 → NFKC正規化 → スペース圧縮
+  // 正規化：不可視文字除去 + NFKC + 半角スラッシュ化 + スペース圧縮
   const firstLineRaw = (text ?? "").split(/\r?\n/)[0];
-  const removedInvis = firstLineRaw.replace(
-    /[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD\u00A0]/g,
-    ""
-  );
+  const removedInvis = firstLineRaw.replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD\u00A0]/g, "");
   const normalized = removedInvis.normalize("NFKC").trim().replace(/\s+/g, " ");
   const stripped = normalized.replace(/^[^\p{L}\p{N}\/\\]+/u, "");
-  const canon = stripped.replace(/^[\\／]/, "/"); // 先頭を半角スラッシュに正規化
+  const canon = stripped.replace(/^[\\／]/, "/");
   const lower = canon.toLowerCase();
 
   // 診断
   if (/^\/debug\b/.test(lower)) {
-    const hex = [...firstLineRaw]
-      .map((c) => c.codePointAt(0)!.toString(16).padStart(4, "0"))
-      .join(" ");
+    const hex = [...firstLineRaw].map(c => c.codePointAt(0)!.toString(16).padStart(4,"0")).join(" ");
     return { type: "text", text: `RAW: ${firstLineRaw}\nHEX: ${hex}\nNORM: ${canon}` };
   }
 
-  // コマンド検出（ゆるめ）
+  // コマンド検出
   const m = canon.match(/^\/\s*(reserve|my|cancel)\b/i);
   const cmd = m?.[1]?.toLowerCase();
 
@@ -93,16 +81,14 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     if (!parsed.ok) {
       return {
         type: "text",
-        text:
-          "📝 予約コマンド例:\n`/reserve 9/25 15:00 カット`\n" +
-          "・日付: M/D または YYYY-MM-DD\n・時間: HH:mm\n・サービス: 任意の文字列",
+        text: "📝 予約コマンド例:\n`/reserve 9/25 15:00 カット`\n・日付: M/D または YYYY-MM-DD\n・時間: HH:mm\n・サービス: 任意の文字列",
       };
     }
 
     const { year, month, day, time, service } = parsed.value;
     const iso = toISOJST(year, month, day, time);
 
-    // ★ 二重予約ガード：同日時の「booked」があればブロック
+    // ① 既存一覧を見て重複チェック（KVの遅延用にソフトガード）
     const conflict = await findConflict(env, userId, iso);
     if (conflict) {
       return {
@@ -115,9 +101,25 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
       };
     }
 
+    // ② ハードガード：ユーザー×日時から “決定論的ID” を作る
+    const id = await deterministicId(`${userId}|${iso}`);
+
+    // 既存レコードをキー直指定で確認（同IDなら“自然に上書き/同一扱い”になる）
+    const existing = await getReservation(env, userId, id);
+    if (existing && existing.status === "booked") {
+      return {
+        type: "text",
+        text:
+          "⚠️ その日時の予約はすでにあります。\n" +
+          `ID: ${existing.id}\n日時: ${existing.date} ${existing.time}\n内容: ${existing.service}\n\n` +
+          "確認は /my、キャンセルは `/cancel <ID>`",
+        quickReply: quick(["/my", `/cancel ${existing.id}`]),
+      };
+    }
+
     const nowIso = nowISOJST();
     const record: Reservation = {
-      id: shortId(),
+      id,
       userId,
       service,
       iso,
@@ -163,7 +165,7 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
 
   /* ---- /cancel ---- */
   if (cmd === "cancel") {
-    // 末尾の句読点/クォート等が混ざってもOKにする（8桁hexを抽出）
+    // 末尾に記号が付いてもOK（8桁hex抽出）
     const idMatch = canon.match(/([a-f0-9]{8})/i);
     if (!idMatch) return { type: "text", text: "キャンセルする予約IDを指定してね 👉 `/cancel abc12345`" };
     const id = idMatch[1].toLowerCase();
@@ -186,7 +188,7 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
   // 既定: 軽いヘルプ + エコー
   return {
     type: "text",
-    text: `echo: ${canon}\n\n予約するなら \`/reserve 9/25 15:00 カット\` って打ってね💇‍♂️`,
+    text: `予約するなら \`/reserve 9/25 15:00 カット\` って打ってね💇‍♂️`,
     quickReply: quick(["/reserve 9/25 15:00 カット", "/my", "ヘルプ"]),
   };
 }
@@ -212,8 +214,7 @@ async function verifyLineSignature(bodyText: string, signature: string, channelS
   return base64 === signature;
 }
 function toBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  let binary = ""; for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }
 
@@ -222,12 +223,12 @@ function toBase64(bytes: Uint8Array): string {
  * ========================= */
 type ReservationStatus = "booked" | "canceled";
 interface Reservation {
-  id: string;
+  id: string;          // 8 hex (deterministic)
   userId: string;
   service: string;
-  iso: string;   // 2025-09-25T15:00:00+09:00
-  date: string;  // YYYY-MM-DD
-  time: string;  // HH:mm
+  iso: string;         // 2025-09-25T15:00:00+09:00
+  date: string;        // YYYY-MM-DD
+  time: string;        // HH:mm
   status: ReservationStatus;
   createdAt: string;
   updatedAt: string;
@@ -238,8 +239,10 @@ async function saveReservation(env: Env, r: Reservation) {
   const idxKey = idxKeyOf(r.userId);
   const current = (await env.LINE_BOOKING.get(idxKey, "json")) as string[] | null;
   const next = Array.isArray(current) ? current : [];
-  if (!next.includes(r.id)) next.unshift(r.id);
-  await env.LINE_BOOKING.put(idxKey, JSON.stringify(next.slice(0, 100)));
+  // 同じIDは重複させない（先頭に寄せる）
+  const filtered = next.filter(x => x !== r.id);
+  filtered.unshift(r.id);
+  await env.LINE_BOOKING.put(idxKey, JSON.stringify(filtered.slice(0, 100)));
 }
 
 async function getReservation(env: Env, userId: string, id: string) {
@@ -260,8 +263,8 @@ async function listReservations(env: Env, userId: string, limit = 10) {
 function resvKey(userId: string, id: string) { return `resv:${userId}:${id}`; }
 function idxKeyOf(userId: string) { return `idx:${userId}`; }
 
-/* ==== Duplicate Guard Helper ==== */
-// 同一日時の既存予約があるかチェック（status=bookedのみ）
+/* ==== Conflict helper ==== */
+// 一覧ベースの緩いガード（KVの遅延で漏れる可能性あり）
 async function findConflict(env: Env, userId: string, iso: string): Promise<Reservation | null> {
   const ids = ((await env.LINE_BOOKING.get(idxKeyOf(userId), "json")) as string[] | null) || [];
   for (const id of ids) {
@@ -269,6 +272,14 @@ async function findConflict(env: Env, userId: string, iso: string): Promise<Rese
     if (r && r.status === "booked" && r.iso === iso) return r;
   }
   return null;
+}
+
+/* ==== Deterministic ID ==== */
+async function deterministicId(text: string): Promise<string> {
+  const buf = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest("SHA-1", buf); // 20 bytes
+  const view = new Uint8Array(digest).slice(0, 4);         // 先頭4バイト=8hex
+  return Array.from(view, b => b.toString(16).padStart(2, "0")).join("");
 }
 
 /* =========================
