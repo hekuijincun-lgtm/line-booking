@@ -75,14 +75,14 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
   // 正規化＆先頭ゴミ除去
   const canon = stripLeadingGarbage(cleaned);
 
-  // ★ 文中の最初の /cmd を拾う（先頭じゃなくてもOK）
-  const mCmd = canon.match(/[\\\/／]\s*(reserve|my|cancel|cleanup|slots|set-slots)(?=\s|$)/i);
+  // ★ 文中の最初の /cmd を拾う（後ろに引数があってもOK）
+  const mCmd = canon.match(/[\\\/／]\s*(reserve|my|cancel|cleanup|slots|set-slots)\b/i);
   const cmd = mCmd ? mCmd[1].toLowerCase() : "";
 
   /* ---------- /slots ---------- */
   if (cmd === "slots") {
     // 例) /slots 9/25  or /slots 2025-09-25
-    const arg = canon.replace(/[\\\/／]\s*slots/i, "").trim();
+    const arg = canon.replace(/[\\\/／]\s*slots\b/i, "").trim();
     const p = parseDateOnly(arg);
     if (!p.ok) return { type: "text", text: "使い方: `/slots 9/25` または `/slots 2025-09-25`" };
     const dateStr = `${p.value.y}-${pad(p.value.m)}-${pad(p.value.d)}`;
@@ -91,7 +91,6 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     const reservations = await listReservationsByDate(env, userId, dateStr);
     const bookedTimes = new Set(reservations.filter(r => r.status === "booked").map(r => r.time));
 
-    // Flex（一括ボタン）
     const available = allSlots.filter(t => !bookedTimes.has(t));
     return buildSlotsFlex(dateStr, available, "カット");
   }
@@ -157,7 +156,7 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
         `✅ 予約を保存したよ！\n` +
         `ID: ${rec.id}\n日時: ${rec.date} ${rec.time}\n内容: ${rec.service}\n\n` +
         `確認は /my、キャンセルは \`/cancel ${rec.id}\``,
-      quickReply: quick(["/my", `/cancel ${rec.id}`, `/slots ${dateStr}`]),
+      quickReply: quick(["/my", `/cancel ${rec.id}`, `/slots ${rec.date}`]),
     };
   }
 
