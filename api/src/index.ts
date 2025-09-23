@@ -48,6 +48,7 @@ export default {
             text:
               "フォローありがと💚\n" +
               "予約は `/reserve 9/25 15:00 カット`\n" +
+              "空き枠は `/slots 9/25`\n" +
               "一覧は `/my`、キャンセルは `/cancel <ID>` ✨",
           });
         }
@@ -90,8 +91,36 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
   }
 
   // コマンド判定
-  const m = canon.match(/^\/\s*(reserve|my|cancel|cleanup)\b/i);
+  const m = canon.match(/^\/\s*(reserve|my|cancel|cleanup|slots|set-slots)\b/i);
   const cmd = m?.[1]?.toLowerCase();
+
+  /* ---- /slots ---- */
+  if (cmd === "slots") {
+    // /slots [date?] 例) /slots 9/25 or /slots 2025-09-25
+    const p = parseDateOnly(canon.replace(/^\/\s*slots\s*/i, ""));
+    if (!p.ok) {
+      const today = todayJST();
+      const d = { y: today.getFullYear(), m: today.getMonth()+1, d: today.getDate() };
+      const dateStr = `${d.y}-${pad(d.m)}-${pad(d.d)}`;
+      const defaults = await getSlots(env, dateStr);
+      return buildSlotsFlex(dateStr, defaults, "カット");
+    }
+    const { y, m: mm, d } = p.value;
+    const dateStr = `${y}-${pad(mm)}-${pad(d)}`;
+    const slots = await getSlots(env, dateStr);
+    return buildSlotsFlex(dateStr, slots, "カット");
+  }
+
+  /* ---- /set-slots ---- */
+  if (cmd === "set-slots") {
+    // 例) /set-slots 2025-09-25 10:00,11:30,14:00
+    const m = canon.match(/\/\s*set-slots\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\s+([0-2]?\d:[0-5]\d(?:\s*,\s*[0-2]?\d:[0-5]\d)*)/i);
+    if (!m) return { type: "text", text: "使い方: `/set-slots 2025-09-25 10:00,11:30,14:00`" };
+    const dateStr = m[1];
+    const arr = m[2].split(",").map(s => s.trim());
+    await env.LINE_BOOKING.put(slotsKey(dateStr), JSON.stringify(arr));
+    return { type: "text", text: `✅ ${dateStr} の枠を更新したよ。\n${arr.join(", ")}`, quickReply: quick([`/slots ${dateStr}`]) };
+  }
 
   /* ---- /reserve ---- */
   if (cmd === "reserve") {
@@ -110,7 +139,7 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     const id = await deterministicId(`${userId}|${iso}`);
     const lockKey = lockKeyOf(userId, iso);
 
-    // 1) ロックキーでハードガード
+    // 1) ロックでハードガード
     const locked = await env.LINE_BOOKING.get(lockKey);
     if (locked) {
       const existing = await getReservation(env, userId, locked);
@@ -126,10 +155,10 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
       }
     }
 
-    // 2) 念のためソフトガード（一覧から重複確認）
+    // 2) ソフトガード
     const conflict = await findConflict(env, userId, iso);
     if (conflict) {
-      await env.LINE_BOOKING.put(lockKey, conflict.id); // 自己修復
+      await env.LINE_BOOKING.put(lockKey, conflict.id);
       return {
         type: "text",
         text:
@@ -140,7 +169,7 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
       };
     }
 
-    // 3) 保存（ロックキーも設定）
+    // 3) 保存
     const nowIso = nowISOJST();
     const record: Reservation = {
       id,
@@ -153,10 +182,10 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
       createdAt: nowIso,
       updatedAt: nowIso,
     };
-
     await saveReservation(env, record);
     await env.LINE_BOOKING.put(lockKey, id);
 
+    // 確定カードはテキストで簡潔に（次フェーズでFlex化）
     return {
       type: "text",
       text:
@@ -165,7 +194,7 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
         `日時: ${record.date} ${record.time}\n` +
         `内容: ${record.service}\n\n` +
         `確認は /my、キャンセルは \`/cancel ${record.id}\``,
-      quickReply: quick(["/my", `/cancel ${record.id}`, "ヘルプ"]),
+      quickReply: quick(["/my", `/cancel ${record.id}`, `/slots ${record.date}`]),
     };
   }
 
@@ -176,7 +205,7 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
       return {
         type: "text",
         text: "まだ予約はないみたい👀\n`/reserve 9/25 15:00 カット` のように予約してみて！",
-        quickReply: quick(["/reserve 9/25 15:00 カット", "ヘルプ"]),
+        quickReply: quick(["/reserve 9/25 15:00 カット", "/slots 9/25", "ヘルプ"]),
       };
     }
     const lines = list
@@ -190,7 +219,7 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
 
   /* ---- /cancel ---- */
   if (cmd === "cancel") {
-    const idMatch = canon.match(/([a-f0-9]{8})/i); // 末尾に記号付いててもOK
+    const idMatch = canon.match(/([a-f0-9]{8})/i);
     if (!idMatch) return { type: "text", text: "キャンセルする予約IDを指定してね 👉 `/cancel abc12345`" };
     const id = idMatch[1].toLowerCase();
 
@@ -201,21 +230,18 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     r.status = "canceled";
     r.updatedAt = nowISOJST();
     await saveReservation(env, r);
-
-    // ロックもクリア
-    await env.LINE_BOOKING.delete(lockKeyOf(userId, r.iso));
+    await env.LINE_BOOKING.delete(lockKeyOf(userId, r.iso)); // ロックも解除
 
     return {
       type: "text",
       text: `🧹 キャンセル完了！\nID: ${id}\n${r.date} ${r.time}  ${r.service}`,
-      quickReply: quick(["/my", "ヘルプ"]),
+      quickReply: quick(["/my", `/slots ${r.date}`, "ヘルプ"]),
     };
   }
 
   /* ---- /cleanup ---- */
   if (cmd === "cleanup") {
-    // 長時間実行で返信トークンが切れないように分割処理
-    const LIMIT = 40;
+    const LIMIT = 40; // 分割実行で高速返信
     const { kept, canceled, remaining } = await cleanupDuplicates(env, userId, LIMIT);
 
     const lines = canceled.length ? `\nキャンセルID:\n- ${canceled.join("\n- ")}` : "";
@@ -231,15 +257,18 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
   // Default（軽いヘルプ）
   return {
     type: "text",
-    text: `予約するなら \`/reserve 9/25 15:00 カット\` って打ってね💇‍♂️`,
-    quickReply: quick(["/reserve 9/25 15:00 カット", "/my", "ヘルプ"]),
+    text: `予約するなら \`/reserve 9/25 15:00 カット\`、空き枠は \`/slots 9/25\` だよ💇‍♂️`,
+    quickReply: quick(["/reserve 9/25 15:00 カット", "/slots 9/25", "/my"]),
   };
 }
 
 /* =========================
  * LINE Helpers
  * ========================= */
-type LineMessage = { type: "text"; text: string; quickReply?: any } | any;
+type LineMessage =
+  | { type: "text"; text: string; quickReply?: any }
+  | { type: "flex"; altText: string; contents: any; quickReply?: any }
+  ;
 
 async function lineReply(token: string, replyToken: string, message: LineMessage) {
   const res = await fetch("https://api.line.me/v2/bot/message/reply", {
@@ -277,6 +306,13 @@ interface Reservation {
   updatedAt: string;
 }
 
+/* ==== KV Keys ==== */
+function resvKey(userId: string, id: string) { return `resv:${userId}:${id}`; }
+function idxKeyOf(userId: string) { return `idx:${userId}`; }
+function lockKeyOf(userId: string, iso: string) { return `dedup:${userId}:${iso}`; }
+function slotsKey(dateStr: string) { return `slots:${dateStr}`; }
+
+/* ==== CRUD ==== */
 async function saveReservation(env: Env, r: Reservation) {
   await env.LINE_BOOKING.put(resvKey(r.userId, r.id), JSON.stringify(r));
   const idxKey = idxKeyOf(r.userId);
@@ -302,9 +338,12 @@ async function listReservations(env: Env, userId: string, limit = 10) {
   return results;
 }
 
-function resvKey(userId: string, id: string) { return `resv:${userId}:${id}`; }
-function idxKeyOf(userId: string) { return `idx:${userId}`; }
-function lockKeyOf(userId: string, iso: string) { return `dedup:${userId}:${iso}`; }
+async function getSlots(env: Env, dateStr: string): Promise<string[]> {
+  const v = await env.LINE_BOOKING.get(slotsKey(dateStr), "json");
+  if (Array.isArray(v)) return v as string[];
+  // デフォルト枠
+  return ["10:00", "13:00", "15:00"];
+}
 
 /* ==== Duplicate helpers ==== */
 async function findConflict(env: Env, userId: string, iso: string): Promise<Reservation | null> {
@@ -412,7 +451,29 @@ function parseReserveCommand(text: string):
   return { ok: true, value: { year, month, day, time, service } };
 }
 
-function nowJST(): Date { return new Date(Date.now() + 9 * 60 * 60 * 1000); }
+function parseDateOnly(arg: string):
+  | { ok: true; value: { y: number; m: number; d: number } }
+  | { ok: false } {
+  const s = arg.trim();
+  if (!s) {
+    const t = todayJST();
+    return { ok: true, value: { y: t.getFullYear(), m: t.getMonth() + 1, d: t.getDate() } };
+  }
+  // 9/25 or 2025-09-25
+  let y: number, m: number, d: number;
+  if (/^\d{1,2}\/\d{1,2}$/.test(s)) {
+    const t = todayJST();
+    y = t.getFullYear();
+    m = parseInt(s.split("/")[0], 10);
+    d = parseInt(s.split("/")[1], 10);
+  } else if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    [y, m, d] = s.split("-").map(x => parseInt(x, 10));
+  } else return { ok: false };
+  return { ok: true, value: { y, m, d } };
+}
+
+function todayJST(): Date { return new Date(Date.now() + 9 * 60 * 60 * 1000); }
+function nowJST(): Date { return todayJST(); }
 function nowISOJST(): string { return toISOOffset(nowJST()); }
 function toISOJST(year: number, month: number, day: number, hhmm: string): string {
   const [hh, mm] = hhmm.split(":").map(v => parseInt(v, 10));
@@ -429,4 +490,52 @@ function toISOOffset(d: Date, offsetMinutes = 540): string {
 function pad(n: number) { return n.toString().padStart(2, "0"); }
 function quick(labels: string[]) {
   return { items: labels.map(l => ({ type: "action", action: { type: "message", label: l.slice(0,20), text: l } })) };
+}
+
+/* =========================
+ * Flex Message builders
+ * ========================= */
+function buildSlotsFlex(dateStr: string, times: string[], service: string): LineMessage {
+  // ボタン1つ=メッセージアクション（reserve テンプレ）
+  const [y, m, d] = dateStr.split("-").map(v => parseInt(v, 10));
+  const md = `${m}/${d}`;
+  const buttons = times.slice(0, 12).map((t) => ({
+    type: "button",
+    style: "primary",
+    action: { type: "message", label: t, text: `/reserve ${md} ${t} ${service}` },
+    height: "sm",
+  }));
+
+  const contents = {
+    type: "bubble",
+    size: "mega",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "空き枠", weight: "bold", size: "xl" },
+        { type: "text", text: dateStr, size: "sm", color: "#888888" },
+        { type: "separator", margin: "sm" },
+        {
+          type: "box",
+          layout: "vertical",
+          spacing: "sm",
+          margin: "md",
+          contents: buttons,
+        },
+        { type: "text", text: "※ タップで予約が作成されます", size: "xs", color: "#999999", margin: "lg" },
+      ],
+    },
+    footer: {
+      type: "box",
+      layout: "horizontal",
+      contents: [
+        { type: "button", style: "secondary", action: { type: "message", label: "他の日付", text: "/slots 9/25" } },
+        { type: "button", style: "secondary", action: { type: "message", label: "マイ予約", text: "/my" } },
+      ],
+    },
+  };
+
+  return { type: "flex", altText: `空き枠 ${dateStr}`, contents, quickReply: quick(["/my"]) };
 }
