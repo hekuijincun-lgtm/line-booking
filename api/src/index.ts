@@ -1,7 +1,3 @@
-了解！フルで貼り替えOKな **`api/src/index.ts` 完全版**。
-（/slots・/set-slots 安定動作、コマンド検出をさらに強化済み💪）
-
-```ts
 export interface Env {
   LINE_BOOKING: KVNamespace;
   LINE_CHANNEL_ACCESS_TOKEN: string;
@@ -94,25 +90,15 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     return { type: "text", text: `userId: ${userId}\niso: ${iso}\nid(deterministic): ${id}\nlock:${locked ?? "<none>"}` };
   }
 
-  // ===== コマンド判定（さらに堅牢版） =====
-  // 先頭は 半角/・全角／・バックスラッシュ を許容し、後ろは空白 or 終端でOK
-  const isCmd = (name: string) => {
-    const re = new RegExp(`^[\\\\／/]\\s*${name}(?:\\s|$)`, "i");
-    return re.test(canon);
-  };
-
-  let cmd = "";
-  if (isCmd("reserve")) cmd = "reserve";
-  else if (isCmd("my")) cmd = "my";
-  else if (isCmd("cancel")) cmd = "cancel";
-  else if (isCmd("cleanup")) cmd = "cleanup";
-  else if (isCmd("slots")) cmd = "slots";
-  else if (isCmd("set-slots")) cmd = "set-slots";
+  // ===== コマンド判定（★どこにあっても最初の /cmd を拾う★） =====
+  // 先頭ゴミや不可視文字、引用記号があってもマッチさせる
+  const cmdMatch = canon.match(/[\\\/／]\s*(reserve|my|cancel|cleanup|slots|set-slots)(?=\s|$)/i);
+  const cmd = cmdMatch ? cmdMatch[1].toLowerCase() : "";
 
   /* ---- /slots ---- */
   if (cmd === "slots") {
     // /slots [date?] 例) /slots 9/25 or /slots 2025-09-25
-    const p = parseDateOnly(canon.replace(/^[\\／/]\s*slots\s*/i, ""));
+    const p = parseDateOnly(canon.replace(/[\\\/／]\s*slots\s*/i, ""));
     if (!p.ok) {
       const today = todayJST();
       const d = { y: today.getFullYear(), m: today.getMonth()+1, d: today.getDate() };
@@ -129,7 +115,7 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
   /* ---- /set-slots ---- */
   if (cmd === "set-slots") {
     // 例) /set-slots 2025-09-25 10:00,11:30,14:00
-    const m = canon.match(/^[\\／/]\s*set-slots\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\s+([0-2]?\d:[0-5]\d(?:\s*,\s*[0-2]?\d:[0-5]\d)*)/i);
+    const m = canon.match(/[\\\/／]\s*set-slots\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\s+([0-2]?\d:[0-5]\d(?:\s*,\s*[0-2]?\d:[0-5]\d)*)/i);
     if (!m) return { type: "text", text: "使い方: `/set-slots 2025-09-25 10:00,11:30,14:00`" };
     const dateStr = m[1];
     const arr = m[2].split(",").map(s => s.trim());
@@ -553,4 +539,3 @@ function buildSlotsFlex(dateStr: string, times: string[], service: string): Line
 
   return { type: "flex", altText: `空き枠 ${dateStr}`, contents, quickReply: quick(["/my"]) };
 }
-```
