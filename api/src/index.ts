@@ -14,11 +14,16 @@ export default {
     if (url.pathname === "/api/line/webhook" && req.method === "POST") {
       const bodyText = await req.text();
 
-      if (!(await verifyLineSignature(
-        bodyText,
-        req.headers.get("x-line-signature") || "",
-        env.LINE_CHANNEL_SECRET
-      ))) return new Response("invalid signature", { status: 401 });
+      // LINE署名検証
+      if (
+        !(await verifyLineSignature(
+          bodyText,
+          req.headers.get("x-line-signature") || "",
+          env.LINE_CHANNEL_SECRET
+        ))
+      ) {
+        return new Response("invalid signature", { status: 401 });
+      }
 
       const payload = JSON.parse(bodyText);
 
@@ -59,54 +64,63 @@ export default {
  * Command Router
  * ========================= */
 async function handleCommand(text: string, userId: string, env: Env): Promise<LineMessage> {
-  // 1行目だけ対象
+  // 1行目だけ対象 → 不可視文字除去 → NFKC正規化 → スペース圧縮
   const firstLineRaw = (text ?? "").split(/\r?\n/)[0];
-
-  // ゼロ幅や双方向制御、NBSP/SHYなど “見えない” 文字を除去
   const removedInvis = firstLineRaw.replace(
     /[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD\u00A0]/g,
     ""
   );
-
-  // NFKCに正規化して前後空白除去、スペース圧縮
   const normalized = removedInvis.normalize("NFKC").trim().replace(/\s+/g, " ");
-
-  // 先頭の記号や句読点類を掃除（たとえば引用記号等）
   const stripped = normalized.replace(/^[^\p{L}\p{N}\/\\]+/u, "");
-
-  // 先頭のスラッシュの“変種”を半角に（全角／、バックスラッシュも許容）
-  const canon = stripped.replace(/^[\\／]/, "/");
-
-  // 下準備
+  const canon = stripped.replace(/^[\\／]/, "/"); // 先頭を半角スラッシュに正規化
   const lower = canon.toLowerCase();
 
-  // ---- 診断用 /debug ----
+  // 診断
   if (/^\/debug\b/.test(lower)) {
-    const hex = [...firstLineRaw].map(c => c.codePointAt(0)!.toString(16).padStart(4,"0")).join(" ");
+    const hex = [...firstLineRaw]
+      .map((c) => c.codePointAt(0)!.toString(16).padStart(4, "0"))
+      .join(" ");
     return { type: "text", text: `RAW: ${firstLineRaw}\nHEX: ${hex}\nNORM: ${canon}` };
   }
 
-  // ---- コマンド検出（ゆるめ）----
-  // 先頭に / or ＼ or ／ があり、続く英単語が reserve|my|cancel のいずれかならマッチ
+  // コマンド検出（ゆるめ）
   const m = canon.match(/^\/\s*(reserve|my|cancel)\b/i);
   const cmd = m?.[1]?.toLowerCase();
 
+  /* ---- /reserve ---- */
   if (cmd === "reserve") {
     const parsed = parseReserveCommand(canon);
     if (!parsed.ok) {
       return {
         type: "text",
-        text: "📝 予約コマンド例:\n`/reserve 9/25 15:00 カット`\n・日付: M/D または YYYY-MM-DD\n・時間: HH:mm\n・サービス: 任意の文字列",
+        text:
+          "📝 予約コマンド例:\n`/reserve 9/25 15:00 カット`\n" +
+          "・日付: M/D または YYYY-MM-DD\n・時間: HH:mm\n・サービス: 任意の文字列",
       };
     }
 
     const { year, month, day, time, service } = parsed.value;
+    const iso = toISOJST(year, month, day, time);
+
+    // ★ 二重予約ガード：同日時の「booked」があればブロック
+    const conflict = await findConflict(env, userId, iso);
+    if (conflict) {
+      return {
+        type: "text",
+        text:
+          "⚠️ その日時は既に予約があります。\n" +
+          `ID: ${conflict.id}\n日時: ${conflict.date} ${conflict.time}\n内容: ${conflict.service}\n\n` +
+          "別の時間で予約してね🙏",
+        quickReply: quick(["/my", "ヘルプ"]),
+      };
+    }
+
     const nowIso = nowISOJST();
     const record: Reservation = {
       id: shortId(),
       userId,
       service,
-      iso: toISOJST(year, month, day, time),
+      iso,
       date: `${year}-${pad(month)}-${pad(day)}`,
       time,
       status: "booked",
@@ -115,6 +129,7 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     };
 
     await saveReservation(env, record);
+
     return {
       type: "text",
       text:
@@ -127,6 +142,7 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     };
   }
 
+  /* ---- /my ---- */
   if (cmd === "my") {
     const list = await listReservations(env, userId, 10);
     if (list.length === 0) {
@@ -136,24 +152,35 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
         quickReply: quick(["/reserve 9/25 15:00 カット", "ヘルプ"]),
       };
     }
-    const lines = list.map(r => {
-      const stat = r.status === "canceled" ? "❌" : "🟢";
-      return `${stat} ${r.id}  ${r.date} ${r.time}  ${r.service}`;
-    }).join("\n");
+    const lines = list
+      .map((r) => {
+        const stat = r.status === "canceled" ? "❌" : "🟢";
+        return `${stat} ${r.id}  ${r.date} ${r.time}  ${r.service}`;
+      })
+      .join("\n");
     return { type: "text", text: `📒 あなたの予約（最新10件）\n${lines}\n\nキャンセルは \`/cancel <ID>\`` };
   }
 
+  /* ---- /cancel ---- */
   if (cmd === "cancel") {
-    const parts = canon.split(/\s+/);
-    if (parts.length < 2) return { type: "text", text: "キャンセルする予約IDを指定してね 👉 `/cancel abc12345`" };
-    const id = parts[1];
+    // 末尾の句読点/クォート等が混ざってもOKにする（8桁hexを抽出）
+    const idMatch = canon.match(/([a-f0-9]{8})/i);
+    if (!idMatch) return { type: "text", text: "キャンセルする予約IDを指定してね 👉 `/cancel abc12345`" };
+    const id = idMatch[1].toLowerCase();
+
     const r = await getReservation(env, userId, id);
     if (!r) return { type: "text", text: `ID ${id} の予約が見つからないよ😢` };
     if (r.status === "canceled") return { type: "text", text: `ID ${id} はすでにキャンセル済みだよ👌` };
+
     r.status = "canceled";
     r.updatedAt = nowISOJST();
     await saveReservation(env, r);
-    return { type: "text", text: `🧹 キャンセル完了！\nID: ${id}\n${r.date} ${r.time}  ${r.service}`, quickReply: quick(["/my", "ヘルプ"]) };
+
+    return {
+      type: "text",
+      text: `🧹 キャンセル完了！\nID: ${id}\n${r.date} ${r.time}  ${r.service}`,
+      quickReply: quick(["/my", "ヘルプ"]),
+    };
   }
 
   // 既定: 軽いヘルプ + エコー
@@ -232,6 +259,17 @@ async function listReservations(env: Env, userId: string, limit = 10) {
 
 function resvKey(userId: string, id: string) { return `resv:${userId}:${id}`; }
 function idxKeyOf(userId: string) { return `idx:${userId}`; }
+
+/* ==== Duplicate Guard Helper ==== */
+// 同一日時の既存予約があるかチェック（status=bookedのみ）
+async function findConflict(env: Env, userId: string, iso: string): Promise<Reservation | null> {
+  const ids = ((await env.LINE_BOOKING.get(idxKeyOf(userId), "json")) as string[] | null) || [];
+  for (const id of ids) {
+    const r = (await env.LINE_BOOKING.get(resvKey(userId, id), "json")) as Reservation | null;
+    if (r && r.status === "booked" && r.iso === iso) return r;
+  }
+  return null;
+}
 
 /* =========================
  * Parsing / Time utils
