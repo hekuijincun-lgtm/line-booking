@@ -90,9 +90,18 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     return { type: "text", text: `userId: ${userId}\niso: ${iso}\nid(deterministic): ${id}\nlock:${locked ?? "<none>"}` };
   }
 
-  // コマンド判定
-  const m = canon.match(/^\/\s*(reserve|my|cancel|cleanup|slots|set-slots)\b/i);
-  const cmd = m?.[1]?.toLowerCase();
+  // ===== コマンド判定（堅牢版） =====
+  const head = canon.replace(/^[\\／]/, "/"); // 念押し
+  const cmdWord = (head.split(/\s+/)[0] || "").toLowerCase();
+  const is = (k: string) => cmdWord === `/${k}` || cmdWord.startsWith(`/${k}`);
+
+  let cmd = "";
+  if (is("reserve")) cmd = "reserve";
+  else if (is("my")) cmd = "my";
+  else if (is("cancel")) cmd = "cancel";
+  else if (is("cleanup")) cmd = "cleanup";
+  else if (is("slots")) cmd = "slots";
+  else if (is("set-slots")) cmd = "set-slots";
 
   /* ---- /slots ---- */
   if (cmd === "slots") {
@@ -185,7 +194,6 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     await saveReservation(env, record);
     await env.LINE_BOOKING.put(lockKey, id);
 
-    // 確定カードはテキストで簡潔に（次フェーズでFlex化）
     return {
       type: "text",
       text:
@@ -230,7 +238,7 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     r.status = "canceled";
     r.updatedAt = nowISOJST();
     await saveReservation(env, r);
-    await env.LINE_BOOKING.delete(lockKeyOf(userId, r.iso)); // ロックも解除
+    await env.LINE_BOOKING.delete(lockKeyOf(userId, r.iso)); // ロック解除
 
     return {
       type: "text",
@@ -249,7 +257,7 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
 
     return {
       type: "text",
-      text: `🧽 お掃除完了！\n処理: ${Math.min(LIMIT, kept + canceled.length)} 件\n自動キャンセル: ${canceled.length} 件${lines}${more}`,
+      text: `🧽 お掃除完了！\n保 持: ${kept} 件\n自動キャンセル: ${canceled.length} 件${lines}${more}`,
       quickReply: quick(["/my", "/cleanup"]),
     };
   }
