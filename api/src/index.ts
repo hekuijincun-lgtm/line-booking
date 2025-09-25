@@ -6,9 +6,12 @@ export interface Env {
   TZ?: string; // default Asia/Tokyo
 }
 
-/* =========================
- * Worker entry
- * ========================= */
+// ====== build stamp (デプロイ確認用) ======
+const BUILD = "2025-09-23T06:20Z";
+
+// =========================
+// Worker entry
+// =========================
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
@@ -58,31 +61,40 @@ export default {
   },
 };
 
-/* =========================
- * Command router
- * ========================= */
+// =========================
+// Command router
+// =========================
 async function handleCommand(text: string, userId: string, env: Env): Promise<LineMessage> {
   const first = (text ?? "").split(/\r?\n/)[0];
   const cleaned = stripInvisibles(first).normalize("NFKC");
 
   // /debug … : 文字状態の診断
-  if (/^[\\\/／]\s*debug\b/i.test(cleaned)) {
+  if (/^[\\\/／]\s*debug\b/iu.test(cleaned)) {
     const hex = [...first].map(c => c.codePointAt(0)!.toString(16).padStart(4,"0")).join(" ");
     const norm = stripLeadingGarbage(cleaned);
     return { type: "text", text: `RAW: ${first}\nHEX: ${hex}\nNORM: ${norm}` };
   }
 
+  // /version : デプロイ確認
+  if (/^[\\\/／]\s*version\b/iu.test(cleaned)) {
+    return { type: "text", text: `version: ${BUILD}` };
+  }
+
   // 正規化＆先頭ゴミ除去
   const canon = stripLeadingGarbage(cleaned);
 
-  // ★ 文中の最初の /cmd を拾う（後ろに引数があってもOK）
-  const mCmd = canon.match(/[\\\/／]\s*(reserve|my|cancel|cleanup|slots|set-slots)\b/i);
+  // ★コマンド検出（Unicode対応、全角スペースOK、末尾/引数OK）
+  const mCmd = canon.match(/[\\\/／]\s*(reserve|my|cancel|cleanup|slots|set-slots)(?=[\s\u3000]|$)/iu);
   const cmd = mCmd ? mCmd[1].toLowerCase() : "";
+
+  // 引数抽出ユーティリティ
+  const argAfter = (name: string) =>
+    canon.replace(new RegExp(`[\\/\\\\／]\\s*${name}(?=[\\s\\u3000]|$)`, "iu"), "").trim();
 
   /* ---------- /slots ---------- */
   if (cmd === "slots") {
+    const arg = argAfter("slots");
     // 例) /slots 9/25  or /slots 2025-09-25
-    const arg = canon.replace(/[\\\/／]\s*slots\b/i, "").trim();
     const p = parseDateOnly(arg);
     if (!p.ok) return { type: "text", text: "使い方: `/slots 9/25` または `/slots 2025-09-25`" };
     const dateStr = `${p.value.y}-${pad(p.value.m)}-${pad(p.value.d)}`;
@@ -90,15 +102,16 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     const allSlots = await getSlots(env, dateStr);
     const reservations = await listReservationsByDate(env, userId, dateStr);
     const bookedTimes = new Set(reservations.filter(r => r.status === "booked").map(r => r.time));
-
     const available = allSlots.filter(t => !bookedTimes.has(t));
+
     return buildSlotsFlex(dateStr, available, "カット");
   }
 
   /* ---------- /set-slots ---------- */
   if (cmd === "set-slots") {
     // 例) /set-slots 2025-09-25 10:00,11:30,14:00,16:30
-    const m = canon.match(/[\\\/／]\s*set-slots\s+(\d{4}-\d{2}-\d{2})\s+([0-2]?\d:[0-5]\d(?:\s*,\s*[0-2]?\d:[0-5]\d)*)/i);
+    const rest = argAfter("set-slots");
+    const m = rest.match(/^\s*(\d{4}-\d{2}-\d{2})\s+([0-2]?\d:[0-5]\d(?:\s*,\s*[0-2]?\d:[0-5]\d)*)\s*$/u);
     if (!m) return { type: "text", text: "使い方: `/set-slots 2025-09-25 10:00,11:30,14:00`" };
     const dateStr = m[1];
     const arr = m[2].split(",").map(s => s.trim());
@@ -121,7 +134,7 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
     const dateStr = `${year}-${pad(month)}-${pad(day)}`;
     const iso = toISOJST(year, month, day, time);
 
-    // 重複チェック（同一 iso の予約があるか）
+    // 同一日時の重複チェック
     const conflict = await findConflict(env, userId, iso);
     if (conflict) {
       return {
@@ -212,13 +225,13 @@ async function handleCommand(text: string, userId: string, env: Env): Promise<Li
   return {
     type: "text",
     text: "予約するなら `/reserve 9/25 15:00 カット`、空き枠は `/slots 9/25` だよ💇‍♀️",
-    quickReply: quick(["/slots 9/25", "/my"]),
+    quickReply: quick(["/slots 9/25", "/my", "/version"]),
   };
 }
 
-/* =========================
- * LINE helpers
- * ========================= */
+// =========================
+// LINE helpers
+// =========================
 type LineMessage =
   | { type: "text"; text: string; quickReply?: any }
   | { type: "flex"; altText: string; contents: any; quickReply?: any };
@@ -239,9 +252,9 @@ async function verifyLineSignature(body: string, signature: string, secret: stri
   return base64 === signature;
 }
 
-/* =========================
- * Domain / KV
- * ========================= */
+// =========================
+// Domain / KV
+// =========================
 type ReservationStatus = "booked" | "canceled";
 interface Reservation {
   id: string; // 8-hex
@@ -329,9 +342,9 @@ async function cleanupDuplicates(env: Env, userId: string, maxScan = 40) {
   return { kept, canceled, remaining: Math.max(ids.length - scan.length, 0) };
 }
 
-/* =========================
- * Utils
- * ========================= */
+// =========================
+// Utils
+// =========================
 function stripInvisibles(s: string) {
   return s.replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD\u00A0]/g, "");
 }
@@ -370,7 +383,7 @@ async function deterministicId(s: string) {
 function parseReserveCommand(s: string):
   | { ok: true; value: { year: number; month: number; day: number; time: string; service: string } }
   | { ok: false } {
-  const m = s.match(/\/\s*reserve\s+([0-9]{1,4}[\/-][0-9]{1,2}(?:[\/-][0-9]{1,2})?)\s+([0-2]?\d:[0-5]\d)\s+(.+)/i);
+  const m = s.match(/\/\s*reserve\s+([0-9]{1,4}[\/-][0-9]{1,2}(?:[\/-][0-9]{1,2})?)\s+([0-2]?\d:[0-5]\d)\s+(.+)/iu);
   if (!m) return { ok: false };
   const dateRaw = m[1].replace(/-/g,"/").replace(/\./g,"/");
   const time = m[2];
@@ -400,21 +413,21 @@ function parseDateOnly(arg: string):
     const t = todayJST();
     return { ok: true, value: { y: t.getFullYear(), m: t.getMonth()+1, d: t.getDate() } };
   }
-  if (/^\d{1,2}\/\d{1,2}$/.test(s)) {
+  if (/^\d{1,2}\/\d{1,2}$/u.test(s)) {
     const t = todayJST();
     const [mm,dd] = s.split("/").map(x=>parseInt(x,10));
     return { ok: true, value: { y: t.getFullYear(), m: mm, d: dd } };
   }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+  if (/^\d{4}-\d{2}-\d{2}$/u.test(s)) {
     const [y,mm,dd] = s.split("-").map(x=>parseInt(x,10));
     return { ok: true, value: { y, m: mm, d: dd } };
   }
   return { ok: false };
 }
 
-/* =========================
- * Flex builders
- * ========================= */
+// =========================
+// Flex builders
+// =========================
 function buildSlotsFlex(dateStr: string, times: string[], service: string): LineMessage {
   const [y,m,d] = dateStr.split("-").map(n=>parseInt(n,10));
   const md = `${m}/${d}`;
