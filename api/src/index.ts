@@ -1,14 +1,20 @@
 // api/src/index.ts
 // Cloudflare Workers (TypeScript) + LINE Messaging API
-// 機能: /help /version /debug /__ping
-//      /reserve YYYY-MM-DD HH:mm [メモ]
-//      /my  /cancel <ID>
-//      /set-slots YYYY-MM-DD HH:mm,HH:mm,...  /slots YYYY-MM-DD
-//      /cleanup（簡易） /inspect（衝突確認）
+// 予約ボット: /help /version /debug /__ping
+//            /set-slots YYYY-MM-DD HH:mm,HH:mm,...  (空き登録)
+//            /slots     YYYY-MM-DD|M/D             (空き一覧=🟢/❌表示)
+//            /reserve   YYYY-MM-DD HH:mm [メモ]     (予約)
+//            /my /cancel <ID> /inspect /cleanup
 //
-// 必要な KV バインディング: LINE_BOOKING
-// 必要な環境変数: LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET, BASE_URL
-// wrangler.toml 側: [[kv_namespaces]] binding = "LINE_BOOKING" ...
+// KV:
+//  slots:<date>                  -> '["10:00","11:30",...]'
+//  taken:<date>T<time>           -> '<reserveId>'   (アクティブ予約がある時だけ存在)
+//  reserve:<id>                  -> Reserve(JSON)
+//  user:<uid>:list               -> '["id1","id2",...]'
+//
+// 必須: [[kv_namespaces]] binding = "LINE_BOOKING"
+// 必須シークレット: LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET
+// 任意: BASE_URL
 
 export interface Env {
   LINE_BOOKING: KVNamespace;
@@ -23,124 +29,110 @@ type LineEvent = {
   source: { userId?: string };
   message: { type: "text"; text: string };
 };
+type LineWebhookBody = { events: LineEvent[] };
 
-type LineWebhookBody = {
-  events: LineEvent[];
-};
-
-const VERSION = "v2.7.0-slots"; // 表示用
+const VERSION = "v2.8.0-slots-mark"; // 表示用
 
 export default {
-  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    // Health check
+  async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
-    if (url.pathname === "/__ping") {
-      return new Response("ok", { status: 200 });
-    }
-
-    // LINE webhook only POST
+    if (url.pathname === "/__ping") return new Response("ok", { status: 200 });
     if (req.method !== "POST") return new Response("ng", { status: 405 });
 
-    // Signature verify
-    const bodyText = await req.text();
-    if (!(await verifyLineSignature(bodyText, req.headers.get("x-line-signature"), env.LINE_CHANNEL_SECRET))) {
+    const raw = await req.text();
+    if (!(await verifyLineSignature(raw, req.headers.get("x-line-signature"), env.LINE_CHANNEL_SECRET))) {
       return new Response("signature error", { status: 401 });
     }
 
-    const body: LineWebhookBody = JSON.parse(bodyText);
+    const body: LineWebhookBody = JSON.parse(raw);
+    for (const ev of body.events || []) {
+      if (ev.type !== "message" || ev.message?.type !== "text") continue;
 
-    await Promise.all(
-      (body.events || []).map(async (ev) => {
-        if (ev.type !== "message" || ev.message?.type !== "text") return;
-        const userId = ev.source.userId;
-        if (!userId) {
-          await replyText(env, ev.replyToken, "ユーザーIDが取得できませんでした🙇");
-          return;
-        }
-        const text = (ev.message.text || "").trim();
+      const replyToken = ev.replyToken;
+      const userId = ev.source.userId;
+      const text = (ev.message.text || "").trim();
 
-        // ルーティング
-        // 1) 内部用
-        if (url.pathname === "/debug" || text.startsWith("/debug ")) {
-          const payload = text.replace(/^\/debug\s*/, "");
-          const hex = [...new TextEncoder().encode(payload)]
-            .map((b) => b.toString(16).padStart(2, "0"))
-            .join(" ");
-          await replyText(
-            env,
-            ev.replyToken,
-            `RAW: ${payload}\nHEX: ${hex}\nNORM: ${normalizeSpaces(payload)}`
-          );
-          return;
-        }
-        if (text === "/version") {
-          await replyText(env, ev.replyToken, `🧩 ${VERSION}`);
-          return;
-        }
-        if (text === "/help" || text === "ヘルプ") {
-          await replyText(
-            env,
-            ev.replyToken,
-            [
-              "📖 使い方：",
-              "・空き確認: `/slots 2025-09-25`",
-              "・空き登録: `/set-slots 2025-09-25 10:00,11:30,14:00,16:30`",
-              "・予約: `/reserve 2025-09-25 10:00 カット`",
-              "・一覧: `/my`",
-              "・取消: `/cancel <ID>`",
-              "・衝突確認: `/inspect 2025-09-25 10:00`",
-              "・掃除: `/cleanup`",
-            ].join("\n")
-          );
-          return;
-        }
+      if (!userId) {
+        await replyText(env, replyToken, "ユーザーIDが取得できませんでした🙇");
+        continue;
+      }
 
-        // 2) 空き枠コマンド
-        if (text.startsWith("/set-slots")) {
-          await handleSetSlots(env, ev.replyToken, text);
-          return;
-        }
-        if (text.startsWith("/slots")) {
-          await handleSlots(env, ev.replyToken, text);
-          return;
-        }
-
-        // 3) 予約系
-        if (text.startsWith("/reserve")) {
-          await handleReserve(env, ev.replyToken, userId, text);
-          return;
-        }
-        if (text === "/my") {
-          await handleMy(env, ev.replyToken, userId);
-          return;
-        }
-        if (text.startsWith("/cancel")) {
-          await handleCancel(env, ev.replyToken, userId, text);
-          return;
-        }
-        if (text.startsWith("/inspect")) {
-          await handleInspect(env, ev.replyToken, text);
-          return;
-        }
-        if (text === "/cleanup") {
-          await handleCleanup(env, ev.replyToken, userId);
-          return;
-        }
-
-        // デフォルト応答（プロンプト）
+      // 内部ユーティリティ
+      if (text === "/version") {
+        await replyText(env, replyToken, `🧩 ${VERSION}`);
+        continue;
+      }
+      if (text === "/help" || text === "ヘルプ") {
         await replyText(
           env,
-          ev.replyToken,
-          "予約するなら `/reserve 2025-09-25 10:00 カット` って打ってね 🧑‍🔧\n空き枠は `/slots 2025-09-25` だよ💡"
+          replyToken,
+          [
+            "📖 使い方：",
+            "・空き登録: `/set-slots 2025-09-25 10:00,11:30,14:00`",
+            "・空き確認: `/slots 2025-09-25`",
+            "・予約: `/reserve 2025-09-25 10:00 カット`",
+            "・一覧: `/my`",
+            "・取消: `/cancel <ID>`",
+            "・衝突確認: `/inspect 2025-09-25 10:00`",
+            "・掃除: `/cleanup`",
+          ].join("\n")
         );
-      })
-    );
+        continue;
+      }
+      if (text.startsWith("/debug")) {
+        const payload = text.replace(/^\/debug\s*/, "");
+        const hex = [...new TextEncoder().encode(payload)]
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join(" ");
+        await replyText(env, replyToken, `RAW: ${payload}\nHEX: ${hex}\nNORM: ${normalizeSpaces(payload)}`);
+        continue;
+      }
 
-    return new Response("OK", { status: 200 });
+      // スロット系
+      if (text.startsWith("/set-slots")) {
+        await handleSetSlots(env, replyToken, text);
+        continue;
+      }
+      if (text.startsWith("/slots")) {
+        await handleSlots(env, replyToken, text);
+        continue;
+      }
+
+      // 予約系
+      if (text.startsWith("/reserve")) {
+        await handleReserve(env, replyToken, userId, text);
+        continue;
+      }
+      if (text === "/my") {
+        await handleMy(env, replyToken, userId);
+        continue;
+      }
+      if (text.startsWith("/cancel")) {
+        await handleCancel(env, replyToken, userId, text);
+        continue;
+      }
+      if (text.startsWith("/inspect")) {
+        await handleInspect(env, replyToken, text);
+        continue;
+      }
+      if (text === "/cleanup") {
+        await handleCleanup(env, replyToken, userId);
+        continue;
+      }
+
+      // デフォルト応答
+      await replyText(
+        env,
+        replyToken,
+        "予約するなら `/reserve 2025-09-25 10:00 カット` って打ってね 🧑‍🔧\n空き枠は `/slots 2025-09-25` だよ💡"
+      );
+    }
+
+    return new Response("OK");
   },
 };
 
-// ===== LINE util =====
+// ========== LINE util ==========
 async function replyText(env: Env, replyToken: string, text: string) {
   const endpoint = "https://api.line.me/v2/bot/message/reply";
   const res = await fetch(endpoint, {
@@ -149,25 +141,14 @@ async function replyText(env: Env, replyToken: string, text: string) {
       Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      replyToken,
-      messages: [{ type: "text", text: text.slice(0, 5000) }],
-    }),
+    body: JSON.stringify({ replyToken, messages: [{ type: "text", text: text.slice(0, 5000) }] }),
   });
-  if (!res.ok) {
-    console.error("LINE reply error", await res.text());
-  }
+  if (!res.ok) console.error("LINE reply error", await res.text());
 }
 
 async function verifyLineSignature(body: string, got: string | null, secret: string) {
   if (!got) return false;
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body));
   const hash = btoa(String.fromCharCode(...new Uint8Array(sig)));
   return safeEqual(hash, got);
@@ -179,13 +160,13 @@ function safeEqual(a: string, b: string) {
   return r === 0;
 }
 
-// ===== Helpers =====
+// ========== Helpers ==========
 const normalizeSpaces = (s: string) => s.replace(/\s+/g, " ").trim();
 
-const dKey = (dateISO: string) => `slots:${dateISO}`; // 空き枠用
-const lockKey = (dateISO: string, time: string) => `taken:${dateISO}T${time}`; // 枠占有キー
-const userListKey = (userId: string) => `user:${userId}:list`; // 予約ID配列
-const reserveKey = (id: string) => `reserve:${id}`; // 予約本体
+const dKey = (dateISO: string) => `slots:${dateISO}`;
+const lockKey = (dateISO: string, time: string) => `taken:${dateISO}T${time}`;
+const userListKey = (userId: string) => `user:${userId}:list`;
+const reserveKey = (id: string) => `reserve:${id}`;
 
 type Reserve = {
   id: string;
@@ -197,22 +178,19 @@ type Reserve = {
   createdAt: string; // ISO
 };
 
-// 短いID
 async function shortId() {
   const a = crypto.getRandomValues(new Uint8Array(4));
   return [...a].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
-
-// パース（9/25 と YYYY-MM-DD 両方許可）
 function parseDateToken(tok: string): string | null {
   tok = tok.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(tok)) return tok;
   const m = tok.match(/^(\d{1,2})\/(\d{1,2})$/);
   if (m) {
-    const y = new Date();
+    const y = new Date().getFullYear();
     const mm = m[1].padStart(2, "0");
     const dd = m[2].padStart(2, "0");
-    return `${y.getFullYear()}-${mm}-${dd}`;
+    return `${y}-${mm}-${dd}`;
   }
   return null;
 }
@@ -225,11 +203,8 @@ function parseTimeToken(tok: string): string | null {
   return null;
 }
 
-// ===== Handlers =====
-
-// /set-slots YYYY-MM-DD HH:mm,HH:mm,...
+// ========== Handlers ==========
 async function handleSetSlots(env: Env, replyToken: string, text: string) {
-  // 例: /set-slots 2025-09-25 10:00,11:30,14:00,16:30
   const norm = normalizeSpaces(text);
   const m = norm.match(/^\/set-slots\s+(\d{4}-\d{2}-\d{2})\s+([0-9:,]+)$/);
   if (!m) {
@@ -247,42 +222,39 @@ async function handleSetSlots(env: Env, replyToken: string, text: string) {
     });
 
   await env.LINE_BOOKING.put(dKey(dateISO), JSON.stringify(times));
-  await replyText(
-    env,
-    replyToken,
-    `✅ ${dateISO} の枠を更新したよ。\n${times.join(", ")}`
-  );
+  await replyText(env, replyToken, `✅ ${dateISO} の枠を更新したよ。\n${times.join(", ")}`);
 }
 
-// /slots YYYY-MM-DD | M/D
 async function handleSlots(env: Env, replyToken: string, text: string) {
+  // 例: /slots 2025-09-25  |  /slots 9/25
   const norm = normalizeSpaces(text);
   const m = norm.match(/^\/slots\s+(.+)$/);
   if (!m) {
     await replyText(env, replyToken, "使い方: `/slots 2025-09-25`");
     return;
   }
-  const d = parseDateToken(m[1]);
-  if (!d) {
-    await replyText(env, replyToken, "日付の形式は `YYYY-MM-DD` か `M/D` で指定してね");
+  const dateISO = parseDateToken(m[1]);
+  if (!dateISO) {
+    await replyText(env, replyToken, "日付は `YYYY-MM-DD` か `M/D` で指定してね");
     return;
   }
-  const val = await env.LINE_BOOKING.get(dKey(d));
+
+  const val = await env.LINE_BOOKING.get(dKey(dateISO));
   if (!val) {
-    await replyText(env, replyToken, `⚠️ ${d} の枠はまだ設定されてないよ`);
+    await replyText(env, replyToken, `⚠️ ${dateISO} の枠は未設定だよ`);
     return;
   }
   const times: string[] = JSON.parse(val);
-  if (!times.length) {
-    await replyText(env, replyToken, `⚠️ ${d} は登録済みだけど、空きは0件だよ`);
-    return;
-  }
-  await replyText(env, replyToken, `📅 ${d} の空き枠:\n${times.join(", ")}`);
+
+  // 予約済み（taken:YYYY-MM-DDT…）を列挙して、「埋まり時間」を特定
+  const takenTimes = await listTakenTimes(env, dateISO);
+
+  // 表示
+  const lines = times.map((t) => (takenTimes.has(t) ? `❌ ${t}（埋まり）` : `🟢 ${t}（空き）`));
+  await replyText(env, replyToken, `📅 ${dateISO} の枠\n${lines.join("\n")}`);
 }
 
-// /reserve YYYY-MM-DD HH:mm [メモ]
 async function handleReserve(env: Env, replyToken: string, userId: string, text: string) {
-  // 例: /reserve 2025-09-25 10:00 カット
   const norm = normalizeSpaces(text);
   const m = norm.match(/^\/reserve\s+(\S+)\s+(\S+)(?:\s+(.+))?$/);
   if (!m) {
@@ -292,42 +264,35 @@ async function handleReserve(env: Env, replyToken: string, userId: string, text:
   const d = parseDateToken(m[1]);
   const t = parseTimeToken(m[2]);
   const memo = m[3] || "";
-
   if (!d || !t) {
-    await replyText(env, replyToken, "日付か時間の形式が違うよ〜（`YYYY-MM-DD HH:mm`）");
+    await replyText(env, replyToken, "日付/時間の形式が違うよ（`YYYY-MM-DD HH:mm`）");
     return;
   }
 
-  // まず /set-slots で登録済みか確認
-  const slots = await env.LINE_BOOKING.get(dKey(d));
-  if (!slots) {
-    await replyText(env, replyToken, `⚠️ ${d} の空き枠が登録されてないよ。まずは \`/set-slots ${d} 10:00,11:30\` みたいに設定してね`);
+  // スロットに存在するか
+  const sv = await env.LINE_BOOKING.get(dKey(d));
+  if (!sv) {
+    await replyText(env, replyToken, `⚠️ ${d} の空き枠が未登録。先に \`/set-slots ${d} 10:00,11:30\` で設定してね`);
     return;
   }
-  const times: string[] = JSON.parse(slots);
-  if (!times.includes(t)) {
-    await replyText(env, replyToken, `⚠️ ${d} ${t} は空き枠に含まれていません。登録済み: ${times.join(", ")}`);
+  const slots: string[] = JSON.parse(sv);
+  if (!slots.includes(t)) {
+    await replyText(env, replyToken, `⚠️ ${d} ${t} は空き枠に含まれていません。登録済み: ${slots.join(", ")}`);
     return;
   }
 
-  // 枠占有チェック
-  const lk = lockKey(d, t);
-  const taken = await env.LINE_BOOKING.get(lk);
-  if (taken) {
-    // 既に予約あり
-    const r: Reserve | null = await getReserve(env, taken);
+  // 既予約チェック（takenキー）
+  const tk = lockKey(d, t);
+  const existing = await env.LINE_BOOKING.get(tk);
+  if (existing) {
+    const r = await getReserve(env, existing);
     if (r && r.status === "active") {
       await replyText(
         env,
         replyToken,
-        [
-          "⚠️ その日時は既に予約があります。",
-          `ID: ${r.id}`,
-          `日時: ${r.date} ${r.time}`,
-          `内容: ${r.memo || "-"}`,
-          "",
-          "別の時間で予約してね🙏",
-        ].join("\n")
+        ["⚠️ その日時は既に予約があります。", `ID: ${r.id}`, `日時: ${r.date} ${r.time}`, `内容: ${r.memo || "-"}`, "", "別の時間で予約してね🙏`"].join(
+          "\n"
+        )
       );
       return;
     }
@@ -343,27 +308,17 @@ async function handleReserve(env: Env, replyToken: string, userId: string, text:
     status: "active",
     createdAt: new Date().toISOString(),
   };
-
-  // 保存（KVは最終的整合性なので厳密ロックではないが十分実用）
   await env.LINE_BOOKING.put(reserveKey(id), JSON.stringify(reserve));
-  await env.LINE_BOOKING.put(lk, id);
+  await env.LINE_BOOKING.put(tk, id);
   await pushUserList(env, userId, id);
 
   await replyText(
     env,
     replyToken,
-    [
-      "✅ 予約を保存したよ！",
-      `ID: ${id}`,
-      `日時: ${d} ${t}`,
-      `内容: ${memo || "-"}`,
-      "",
-      "確認は `/my`, キャンセルは `/cancel " + id + "`",
-    ].join("\n")
+    ["✅ 予約を保存したよ！", `ID: ${id}`, `日時: ${d} ${t}`, `内容: ${memo || "-"}`, "", "確認は `/my`, キャンセルは `/cancel " + id + "`"].join("\n")
   );
 }
 
-// /my
 async function handleMy(env: Env, replyToken: string, userId: string) {
   const ids = await readUserList(env, userId);
   if (!ids.length) {
@@ -385,7 +340,6 @@ async function handleMy(env: Env, replyToken: string, userId: string) {
   await replyText(env, replyToken, lines.join("\n"));
 }
 
-// /cancel <ID>
 async function handleCancel(env: Env, replyToken: string, userId: string, text: string) {
   const m = text.match(/^\/cancel\s+([a-f0-9]{8})$/i);
   if (!m) {
@@ -409,16 +363,11 @@ async function handleCancel(env: Env, replyToken: string, userId: string, text: 
 
   r.status = "canceled";
   await env.LINE_BOOKING.put(reserveKey(id), JSON.stringify(r));
-  await env.LINE_BOOKING.delete(lockKey(r.date, r.time)); // 枠を解放
+  await env.LINE_BOOKING.delete(lockKey(r.date, r.time)); // 枠解放
 
-  await replyText(
-    env,
-    replyToken,
-    ["✅ キャンセル完了！", `ID: ${r.id}`, `日時: ${r.date} ${r.time}`, `内容: ${r.memo || "-"}`].join("\n")
-  );
+  await replyText(env, replyToken, ["✅ キャンセル完了！", `ID: ${r.id}`, `日時: ${r.date} ${r.time}`, `内容: ${r.memo || "-"}`].join("\n"));
 }
 
-// /inspect YYYY-MM-DD HH:mm
 async function handleInspect(env: Env, replyToken: string, text: string) {
   const norm = normalizeSpaces(text);
   const m = norm.match(/^\/inspect\s+(\S+)\s+(\S+)$/);
@@ -432,42 +381,46 @@ async function handleInspect(env: Env, replyToken: string, text: string) {
     await replyText(env, replyToken, "日付/時間の形式が違うよ（`YYYY-MM-DD HH:mm`）");
     return;
   }
-  const u = crypto.randomUUID(); // 疑似 userId サンプル
-  const out = [
-    `userid: ${u.slice(0, 20)}`,
-    `iso: ${d}T${t}:00+09:00`,
-    `id(deterministic): ${await shortId()}`,
-    `lock:<${await env.LINE_BOOKING.get(lockKey(d, t)) || "none"}>`,
-  ].join("\n");
+  const lock = await env.LINE_BOOKING.get(lockKey(d, t));
+  const out = [`userid: (secret)`, `iso: ${d}T${t}:00+09:00`, `id(deterministic): ${await shortId()}`, `lock:<${lock || "none"}>`].join("\n");
   await replyText(env, replyToken, out);
 }
 
-// /cleanup（自分のキャンセル済みを整理）
 async function handleCleanup(env: Env, replyToken: string, userId: string) {
   const ids = await readUserList(env, userId);
   let kept = 0;
   let removed = 0;
   for (const id of ids) {
     const r = await getReserve(env, id);
-    if (!r) {
-      removed++;
-      continue;
-    }
-    kept++;
+    if (r) kept++;
+    else removed++;
   }
-  await replyText(
-    env,
-    replyToken,
-    `🧹 お掃除完了！\n保持: ${kept} 件\n自動キャンセル: ${removed} 件`
-  );
+  await replyText(env, replyToken, `🧹 お掃除完了！\n保持: ${kept} 件\n自動キャンセル: ${removed} 件`);
 }
 
-// ===== KV helpers =====
+// ========== KV helpers ==========
+async function listTakenTimes(env: Env, dateISO: string): Promise<Set<string>> {
+  // taken:YYYY-MM-DDT の prefix で列挙 → 末尾の HH:mm を抽出
+  const prefix = `taken:${dateISO}T`;
+  const times = new Set<string>();
+  // ページング対応（KV.listは最大1000件/ページ）
+  let cursor: string | undefined = undefined;
+  do {
+    const page = await env.LINE_BOOKING.list({ prefix, cursor });
+    for (const k of page.keys) {
+      // k.name = taken:YYYY-MM-DDTHH:mm
+      const t = k.name.substring(prefix.length);
+      if (/^\d{2}:\d{2}$/.test(t)) times.add(t);
+    }
+    cursor = page.cursor;
+  } while (cursor);
+  return times;
+}
+
 async function getReserve(env: Env, id: string): Promise<Reserve | null> {
   const v = await env.LINE_BOOKING.get(reserveKey(id));
   return v ? (JSON.parse(v) as Reserve) : null;
 }
-
 async function readUserList(env: Env, userId: string): Promise<string[]> {
   const v = await env.LINE_BOOKING.get(userListKey(userId));
   if (!v) return [];
@@ -478,10 +431,8 @@ async function readUserList(env: Env, userId: string): Promise<string[]> {
     return [];
   }
 }
-
 async function pushUserList(env: Env, userId: string, id: string) {
   const cur = await readUserList(env, userId);
-  // 先頭に追加（最新が上）
   const next = [id, ...cur].slice(0, 50);
   await env.LINE_BOOKING.put(userListKey(userId), JSON.stringify(next));
 }
