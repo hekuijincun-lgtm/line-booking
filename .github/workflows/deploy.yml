@@ -10,13 +10,17 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Deploy with Wrangler
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          workingDirectory: api
-          command: deploy
+          apiToken: ${{ secrets.CF_API_TOKEN }}   # ← Cloudflare API Token（Workers Scripts:Edit / KV:Edit / Account:Read）
+          accountId: ${{ secrets.CF_ACCOUNT_ID }} # ← Cloudflare Account ID
+          workingDirectory: api                   # ← wrangler.toml が置いてあるディレクトリ
+          command: deploy --verbose
