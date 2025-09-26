@@ -2,11 +2,7 @@ name = "saas-api"
 main = "src/index.ts"
 compatibility_date = "2024-10-01"
 
-# 本番KV
 [[kv_namespaces]]
 binding = "LINE_BOOKING"
-id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"        # ←Dashbord>KVからIDを貼る
-preview_id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" # 本番と同じでもOK
-
-# （任意）デプロイ先Routeを使うなら以下を設定
-# workers_dev = true
+id = "YOUR_KV_ID_HERE"          # CFダッシュボード→KV→NamespaceからIDを貼る
+preview_id = "YOUR_KV_ID_HERE"  # 本番と同じでもOK
