@@ -1,11 +1,9 @@
 name = "saas-api"
 main = "src/index.ts"
 compatibility_date = "2024-10-01"
-
-# これを明記すると wrangler は環境変数に頼らず動く
-account_id = "＜CloudflareのAccount ID＞"
+account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 
 [[kv_namespaces]]
 binding    = "LINE_BOOKING"
-id         = "22103efd0bd04365a2ec0502a4b3dbc4"   # LINE_BOOKING
-preview_id = "03bbf9082957456cb4c18159d6788808"   # LINE_BOOKING_preview
+id         = "22103efd0bd04365a2ec0502a4b3dbc4"
+preview_id = "03bbf9082957456cb4c18159d6788808"
