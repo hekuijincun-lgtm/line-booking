@@ -1,18 +1,12 @@
 name = "saas-api"
 main = "src/index.ts"
-compatibility_date = "2024-10-02"
+compatibility_date = "2024-10-01"
 
-[vars]
-TZ = "Asia/Tokyo"
-
+# 本番KV
 [[kv_namespaces]]
 binding = "LINE_BOOKING"
-id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"        # ← 後で差し替え
-preview_id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" # ← 後で差し替え
+id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"        # ←Dashbord>KVからIDを貼る
+preview_id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" # 本番と同じでもOK
 
-[dev]
-port = 8787
-local_protocol = "http"
-
-[observability]
-enabled = true
+# （任意）デプロイ先Routeを使うなら以下を設定
+# workers_dev = true
