@@ -2,7 +2,7 @@
 // - /set-slots YYYY-MM-DD 10:00,11:30,...
 // - /slots YYYY-MM-DD   （9/25 など柔軟対応）
 // - /reserve YYYY-MM-DD HH:MM 内容
-// 返信は reply → 失敗時 push に自動フォールバック
+// 返信は reply → 失敗時 push に自動フォールバック（user/group/room対応）
 
 export interface Env {
   LINE_BOOKING: KVNamespace;
@@ -14,7 +14,7 @@ type LineEvent = {
   replyToken?: string;
   deliveryContext?: { isRedelivery?: boolean };
   message?: { type: "text"; text?: string };
-  source?: { userId?: string };
+  source?: { type?: "user" | "group" | "room"; userId?: string; groupId?: string; roomId?: string };
 };
 
 const LINE_REPLY = "https://api.line.me/v2/bot/message/reply";
@@ -69,29 +69,29 @@ async function listAvailable(env: Env, date: string) {
 
 function genId() { return crypto.randomUUID().slice(0, 8); }
 
+function pickPushTo(e: LineEvent): string | undefined {
+  return e.source?.userId || e.source?.groupId || e.source?.roomId;
+}
+
 async function sendText(env: Env, e: LineEvent, text: string) {
   // 1) reply
   if (e.replyToken) {
     const r = await fetch(LINE_REPLY, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}` },
       body: JSON.stringify({ replyToken: e.replyToken, messages: [{ type: "text", text }] }),
     });
     if (r.ok) return;
     const msg = await r.text();
     log("reply failed", r.status, msg);
-    // 2) push fallback（replyToken失効など）
-    if (r.status === 400 && /Invalid reply token/i.test(msg) && e.source?.userId) {
+    // 2) push fallback（replyToken失効・再送など）
+    if (r.status === 400 && /Invalid reply token/i.test(msg)) {
+      const to = pickPushTo(e);
+      if (!to) { log("push skipped: no to (source)", e.source); return; }
       const p = await fetch(LINE_PUSH, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
-        },
-        body: JSON.stringify({ to: e.source.userId, messages: [{ type: "text", text }] }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}` },
+        body: JSON.stringify({ to, messages: [{ type: "text", text }] }),
       });
       if (!p.ok) log("push failed", p.status, await p.text());
     }
@@ -103,12 +103,12 @@ async function sendText(env: Env, e: LineEvent, text: string) {
 async function handleMessage(env: Env, e: LineEvent, ctx: ExecutionContext) {
   const text = e.message?.text ?? "";
   const { cmd, args, raw } = parseCmd(text);
-  log("recv", { cmd, args, raw });
+  log("recv", { cmd, args, raw, source: e.source?.type });
 
   if (cmd === "/help") {
-    ctx.waitUntil(sendText(env, e,
+    await sendText(env, e,
       "使い方：\n・/set-slots YYYY-MM-DD 10:00,11:30,14:00\n・/slots YYYY-MM-DD（9/25でもOK）\n・/reserve YYYY-MM-DD HH:MM 内容"
-    ));
+    );
     return;
   }
 
@@ -116,35 +116,26 @@ async function handleMessage(env: Env, e: LineEvent, ctx: ExecutionContext) {
     const [dateArg, ...rest] = args;
     const date = dateArg ? normalizeDateArg(dateArg) : null;
     const csv  = rest.join(" ");
-    if (!date || !csv) {
-      ctx.waitUntil(sendText(env, e, "使い方: /set-slots 2025-09-25 10:00,11:30,14:00"));
-      return;
-    }
+    if (!date || !csv) { await sendText(env, e, "使い方: /set-slots 2025-09-25 10:00,11:30,14:00"); return; }
     const times = parseTimes(csv);
     await env.LINE_BOOKING.put(keySlots(date), times.join(","), { expirationTtl: 60 * 60 * 24 * 60 });
     log("set-slots", date, times);
-    ctx.waitUntil(sendText(env, e, `✅ ${date} の枠を更新したよ。\n${times.join(", ")}`));
+    await sendText(env, e, `✅ ${date} の枠を更新したよ。\n${times.join(", ")}`);
     return;
   }
 
   if (cmd === "/slots") {
     const [dateArg] = args;
     const date = dateArg ? normalizeDateArg(dateArg) : null;
-    if (!date) {
-      ctx.waitUntil(sendText(env, e, "使い方: /slots 2025-09-25（9/25でもOK）"));
-      return;
-    }
+    if (!date) { await sendText(env, e, "使い方: /slots 2025-09-25（9/25でもOK）"); return; }
     const data = await listAvailable(env, date);
     log("slots", date, data);
-    if (data.slots.length === 0) {
-      ctx.waitUntil(sendText(env, e, `${date} の枠はまだ登録されてないよ`));
-      return;
-    }
+    if (data.slots.length === 0) { await sendText(env, e, `${date} の枠はまだ登録されてないよ`); return; }
     const msg =
       `📅 ${date} の枠\n` +
       `空き: ${data.avail.length ? data.avail.join(", ") : "なし🙏"}\n` +
       `予約済: ${data.reserved.length ? data.reserved.join(", ") : "なし"}`;
-    ctx.waitUntil(sendText(env, e, msg));
+    await sendText(env, e, msg);
     return;
   }
 
@@ -152,24 +143,21 @@ async function handleMessage(env: Env, e: LineEvent, ctx: ExecutionContext) {
     const [dateArg, time, ...rest] = args;
     const date = dateArg ? normalizeDateArg(dateArg) : null;
     const content = rest.join(" ") || "予約";
-    if (!date || !time) {
-      ctx.waitUntil(sendText(env, e, "使い方: /reserve 2025-09-25 10:00 カット"));
-      return;
-    }
+    if (!date || !time) { await sendText(env, e, "使い方: /reserve 2025-09-25 10:00 カット"); return; }
 
     const { slots } = await listAvailable(env, date);
     if (slots.length === 0 || !slots.includes(time)) {
-      ctx.waitUntil(sendText(env, e, `その日付は枠未設定か、時刻 ${time} は存在しないよ`));
+      await sendText(env, e, `その日付は枠未設定か、時刻 ${time} は存在しないよ`);
       return;
     }
 
     const exist = await env.LINE_BOOKING.get(keyRes(date, time));
     if (exist) {
       const j = JSON.parse(exist);
-      ctx.waitUntil(sendText(
+      await sendText(
         env, e,
         `⚠️ その日時は既に予約があります。\nID: ${j.id}\n日時: ${date} ${time}\n内容: ${j.content}\n\n別の時間で予約してね🙏`
-      ));
+      );
       return;
     }
 
@@ -180,12 +168,12 @@ async function handleMessage(env: Env, e: LineEvent, ctx: ExecutionContext) {
       env.LINE_BOOKING.put(keyResId(id), JSON.stringify(rec), { expirationTtl: 60 * 60 * 24 * 60 }),
     ]);
     log("reserve", rec);
-    ctx.waitUntil(sendText(env, e, `✅ 予約を確定したよ！\nID: ${id}\n日時: ${date} ${time}\n内容: ${content}`));
+    await sendText(env, e, `✅ 予約を確定したよ！\nID: ${id}\n日時: ${date} ${time}\n内容: ${content}`);
     return;
   }
 
   // fallback
-  ctx.waitUntil(sendText(env, e, `echo: ${text}`));
+  await sendText(env, e, `echo: ${text}`);
 }
 
 // ---------- worker ----------
@@ -193,10 +181,7 @@ export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
 
-    // ヘルスチェック
-    if (req.method === "GET" && url.pathname === "/__ping") {
-      return new Response("ok", { status: 200 });
-    }
+    if (req.method === "GET" && url.pathname === "/__ping") return new Response("ok", { status: 200 });
 
     // デバッグ（ブラウザで状態確認）
     if (req.method === "GET" && url.pathname === "/__debug/slots") {
@@ -212,7 +197,7 @@ export default {
       try { body = await req.json(); } catch { return new Response("ok", { status: 200 }); }
       const events: LineEvent[] = body.events ?? [];
 
-      // 先に200を返して再送防止
+      // 先に 200 を返して再送防止
       const early = new Response("ok", { status: 200 });
 
       ctx.waitUntil((async () => {
