@@ -1,8 +1,4 @@
-// Cloudflare Worker (LINE 予約ボット)
-// - /set-slots YYYY-MM-DD 10:00,11:30,...
-// - /slots YYYY-MM-DD   （9/25 など柔軟対応）
-// - /reserve YYYY-MM-DD HH:MM 内容
-// 返信は reply → 失敗時 push に自動フォールバック（user/group/room対応）
+// --- LINE Booking: minimal, robust handler -----------------------------
 
 export interface Env {
   LINE_BOOKING: KVNamespace;
@@ -10,214 +6,224 @@ export interface Env {
 }
 
 type LineEvent = {
-  type: string;
+  type: "message";
   replyToken?: string;
   deliveryContext?: { isRedelivery?: boolean };
-  message?: { type: "text"; text?: string };
-  source?: { type?: "user" | "group" | "room"; userId?: string; groupId?: string; roomId?: string };
+  source?: { type?: "user" | "group" | "room"; userId?: string };
+  message?: { type?: "text"; text?: string };
 };
 
 const LINE_REPLY = "https://api.line.me/v2/bot/message/reply";
 const LINE_PUSH  = "https://api.line.me/v2/bot/message/push";
 
-// ---------- utils ----------
-function log(...a: any[]) { console.log("[line-booking]", ...a); }
+// ---- utils ------------------------------------------------------------
 
-function normSpaces(s: string) {
-  return s.replace(/\u3000/g, " ").replace(/\s+/g, " ").trim();
+const log = (...a: any[]) => console.log("[line-booking]", ...a);
+
+const ok = (body = "ok", init?: ResponseInit) =>
+  new Response(typeof body === "string" ? body : JSON.stringify(body), {
+    headers: { "content-type": "application/json; charset=utf-8" },
+    ...init,
+  });
+
+// KV helpers
+async function kvGetJSON<T>(kv: KVNamespace, key: string, def: T): Promise<T> {
+  const v = await kv.get(key);
+  if (!v) return def;
+  try { return JSON.parse(v) as T; } catch { return def; }
+}
+async function kvPutJSON(kv: KVNamespace, key: string, v: any) {
+  await kv.put(key, JSON.stringify(v));
 }
 
-function parseCmd(text?: string) {
-  if (!text) return { cmd: "", args: [] as string[], raw: "" };
-  const raw = text;
-  const t = normSpaces(text.replace(/[，、]/g, ",")); // 全角カンマ許容
-  const [cmd, ...args] = t.split(" ");
-  return { cmd, args, raw };
-}
+// text helpers
+const normDate = (s: string) => s.trim(); // 期待形式: YYYY-MM-DD
+const normTime = (s: string) => s.trim(); // 期待形式: HH:mm
 
-function z2(n: number) { return n < 10 ? `0${n}` : `${n}`; }
-
-function normalizeDateArg(arg: string): string | null {
-  const y = new Date().getFullYear();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(arg)) return arg;
-  let m = arg.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
-  if (m) return `${m[1]}-${z2(+m[2])}-${z2(+m[3])}`;
-  m = arg.match(/^(\d{1,2})[\/-](\d{1,2})$/);
-  if (m) return `${y}-${z2(+m[1])}-${z2(+m[2])}`;
-  return null;
-}
-
-function parseTimes(csv: string) {
-  return csv.replace(/、/g, ",").replace(/\s/g, "").split(",").filter(Boolean);
-}
-
-const keySlots = (d: string) => `SLOTS:${d}`;
-const keyRes   = (d: string, t: string) => `RES:${d}:${t}`;
-const keyResId = (id: string) => `RESID:${id}`;
-
-async function listAvailable(env: Env, date: string) {
-  const base = (await env.LINE_BOOKING.get(keySlots(date))) || "";
-  const slots = parseTimes(base);
-  if (slots.length === 0) return { slots, avail: [] as string[], reserved: [] as string[] };
-  const checks = await Promise.all(
-    slots.map(async (t) => ({ t, v: await env.LINE_BOOKING.get(keyRes(date, t)) }))
-  );
-  const reserved = checks.filter((x) => x.v).map((x) => x.t);
-  const avail = slots.filter((t) => !reserved.includes(t));
-  return { slots, avail, reserved };
-}
-
-function genId() { return crypto.randomUUID().slice(0, 8); }
-
-function pickPushTo(e: LineEvent): string | undefined {
-  return e.source?.userId || e.source?.groupId || e.source?.roomId;
-}
-
+// LINE send (reply -> fallback push)
 async function sendText(env: Env, e: LineEvent, text: string) {
   // 1) reply
   if (e.replyToken) {
     const r = await fetch(LINE_REPLY, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}` },
-      body: JSON.stringify({ replyToken: e.replyToken, messages: [{ type: "text", text }] }),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
+      },
+      body: JSON.stringify({
+        replyToken: e.replyToken,
+        messages: [{ type: "text", text }],
+      }),
     });
     if (r.ok) return;
-    const msg = await r.text();
+    const msg = await r.text().catch(() => "");
     log("reply failed", r.status, msg);
-    // 2) push fallback（replyToken失効・再送など）
-    if (r.status === 400 && /Invalid reply token/i.test(msg)) {
-      const to = pickPushTo(e);
-      if (!to) { log("push skipped: no to (source)", e.source); return; }
+
+    // 2) push fallback（userIdのみ。group/roomには仕様上不可）
+    if (
+      r.status === 400 ||
+      r.status === 404 ||
+      /Invalid reply token/i.test(msg)
+    ) {
+      const to = e.source?.userId;
+      if (!to) { log("push skipped (no userId; group/room)"); return; }
       const p = await fetch(LINE_PUSH, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}` },
-        body: JSON.stringify({ to, messages: [{ type: "text", text }] }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
+        },
+        body: JSON.stringify({
+          to,
+          messages: [{ type: "text", text }],
+        }),
       });
-      if (!p.ok) log("push failed", p.status, await p.text());
+      if (!p.ok) log("push failed", p.status, await p.text().catch(() => ""));
     }
-    return;
   }
 }
 
-// ---------- handlers ----------
-async function handleMessage(env: Env, e: LineEvent, ctx: ExecutionContext) {
-  const text = e.message?.text ?? "";
-  const { cmd, args, raw } = parseCmd(text);
-  log("recv", { cmd, args, raw, source: e.source?.type });
+// ---- domain: slots & reservations -------------------------------------
 
-  if (cmd === "/help") {
-    await sendText(env, e,
-      "使い方：\n・/set-slots YYYY-MM-DD 10:00,11:30,14:00\n・/slots YYYY-MM-DD（9/25でもOK）\n・/reserve YYYY-MM-DD HH:MM 内容"
-    );
-    return;
-  }
+const kSlots = (date: string) => `slots:${date}`; // ["10:00","11:30",...]
+const kResv  = (date: string) => `resv:${date}`;  // { "10:00": "カット" }
 
-  if (cmd === "/set-slots") {
-    const [dateArg, ...rest] = args;
-    const date = dateArg ? normalizeDateArg(dateArg) : null;
-    const csv  = rest.join(" ");
-    if (!date || !csv) { await sendText(env, e, "使い方: /set-slots 2025-09-25 10:00,11:30,14:00"); return; }
-    const times = parseTimes(csv);
-    await env.LINE_BOOKING.put(keySlots(date), times.join(","), { expirationTtl: 60 * 60 * 24 * 60 });
-    log("set-slots", date, times);
+async function setSlots(env: Env, date: string, times: string[]) {
+  const ts = times.map(normTime).filter(Boolean);
+  await kvPutJSON(env.LINE_BOOKING, kSlots(date), ts);
+}
+
+async function getSlots(env: Env, date: string) {
+  return kvGetJSON<string[]>(env.LINE_BOOKING, kSlots(date), []);
+}
+async function getResv(env: Env, date: string) {
+  return kvGetJSON<Record<string, string>>(env.LINE_BOOKING, kResv(date), {});
+}
+async function putResv(env: Env, date: string, map: Record<string, string>) {
+  await kvPutJSON(env.LINE_BOOKING, kResv(date), map);
+}
+
+// ---- command handlers --------------------------------------------------
+
+async function handleMessage(env: Env, e: LineEvent) {
+  if (!e.message?.text) return;
+  const text = e.message.text.trim();
+
+  // /set-slots YYYY-MM-DD 10:00,11:30,14:00
+  if (text.startsWith("/set-slots")) {
+    const m = text.match(/^\/set-slots\s+(\d{4}-\d{2}-\d{2})\s+(.+)$/);
+    if (!m) {
+      await sendText(env, e, "使い方: /set-slots 2025-09-25 10:00,11:30,14:00");
+      return;
+    }
+    const date = normDate(m[1]);
+    const times = m[2].split(",").map(s => s.trim());
+    await setSlots(env, date, times);
     await sendText(env, e, `✅ ${date} の枠を更新したよ。\n${times.join(", ")}`);
     return;
   }
 
-  if (cmd === "/slots") {
-    const [dateArg] = args;
-    const date = dateArg ? normalizeDateArg(dateArg) : null;
-    if (!date) { await sendText(env, e, "使い方: /slots 2025-09-25（9/25でもOK）"); return; }
-    const data = await listAvailable(env, date);
-    log("slots", date, data);
-    if (data.slots.length === 0) { await sendText(env, e, `${date} の枠はまだ登録されてないよ`); return; }
-    const msg =
-      `📅 ${date} の枠\n` +
-      `空き: ${data.avail.length ? data.avail.join(", ") : "なし🙏"}\n` +
-      `予約済: ${data.reserved.length ? data.reserved.join(", ") : "なし"}`;
-    await sendText(env, e, msg);
+  // /slots YYYY-MM-DD
+  if (text.startsWith("/slots")) {
+    const m = text.match(/^\/slots\s+(\d{4}-\d{2}-\d{2})$/);
+    if (!m) {
+      await sendText(env, e, "使い方: /slots 2025-09-25");
+      return;
+    }
+    const date = normDate(m[1]);
+    const slots = await getSlots(env, date);
+    const resv  = await getResv(env, date);
+
+    if (!slots.length) {
+      await sendText(env, e, `⚠️ ${date} はまだ枠が設定されていないよ。\n/set-slots で登録してね。`);
+      return;
+    }
+    const avail = slots.filter(t => !resv[t]);
+    const reserved = slots.filter(t => !!resv[t]);
+
+    const lines = [
+      `📅 ${date} の空き状況`,
+      `空き: ${avail.length ? avail.join(", ") : "なし"}`,
+      `予約済: ${reserved.length ? reserved.join(", ") : "なし"}`,
+    ];
+    await sendText(env, e, lines.join("\n"));
     return;
   }
 
-  if (cmd === "/reserve") {
-    const [dateArg, time, ...rest] = args;
-    const date = dateArg ? normalizeDateArg(dateArg) : null;
-    const content = rest.join(" ") || "予約";
-    if (!date || !time) { await sendText(env, e, "使い方: /reserve 2025-09-25 10:00 カット"); return; }
-
-    const { slots } = await listAvailable(env, date);
-    if (slots.length === 0 || !slots.includes(time)) {
-      await sendText(env, e, `その日付は枠未設定か、時刻 ${time} は存在しないよ`);
+  // /reserve YYYY-MM-DD HH:mm タイトル
+  if (text.startsWith("/reserve")) {
+    const m = text.match(/^\/reserve\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s+(.+)$/);
+    if (!m) {
+      await sendText(env, e, "使い方: /reserve 2025-09-25 10:00 カット");
       return;
     }
+    const date = normDate(m[1]);
+    const time = normTime(m[2]);
+    const title = m[3].trim();
 
-    const exist = await env.LINE_BOOKING.get(keyRes(date, time));
-    if (exist) {
-      const j = JSON.parse(exist);
-      await sendText(
-        env, e,
-        `⚠️ その日時は既に予約があります。\nID: ${j.id}\n日時: ${date} ${time}\n内容: ${j.content}\n\n別の時間で予約してね🙏`
-      );
+    const slots = await getSlots(env, date);
+    if (!slots.includes(time)) {
+      await sendText(env, e, `⚠️ その時間は候補にないよ。\n候補: ${slots.join(", ") || "未設定"}`);
       return;
     }
-
-    const id = genId();
-    const rec = { id, date, time, content, at: Date.now() };
-    await Promise.all([
-      env.LINE_BOOKING.put(keyRes(date, time), JSON.stringify(rec), { expirationTtl: 60 * 60 * 24 * 60 }),
-      env.LINE_BOOKING.put(keyResId(id), JSON.stringify(rec), { expirationTtl: 60 * 60 * 24 * 60 }),
-    ]);
-    log("reserve", rec);
-    await sendText(env, e, `✅ 予約を確定したよ！\nID: ${id}\n日時: ${date} ${time}\n内容: ${content}`);
+    const resv = await getResv(env, date);
+    if (resv[time]) {
+      await sendText(env, e, `⚠️ その日時は既に予約があります。\nID: ${resv[time]}`);
+      return;
+    }
+    resv[time] = title || "予約";
+    await putResv(env, date, resv);
+    await sendText(env, e, `✅ 予約を登録したよ。\n日時: ${date} ${time}\n内容: ${title}`);
     return;
   }
 
-  // fallback
-  await sendText(env, e, `echo: ${text}`);
+  // その他
+  if (text === "/help") {
+    await sendText(env, e,
+      [
+        "使い方:",
+        "/set-slots YYYY-MM-DD 10:00,11:30,14:00",
+        "/slots YYYY-MM-DD",
+        "/reserve YYYY-MM-DD HH:mm タイトル",
+      ].join("\n")
+    );
+  }
 }
 
-// ---------- worker ----------
+// ---- worker ------------------------------------------------------------
+
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
 
-    if (req.method === "GET" && url.pathname === "/__ping") return new Response("ok", { status: 200 });
-
-    // デバッグ（ブラウザで状態確認）
+    // health / debug
+    if (req.method === "GET" && url.pathname === "/__ping") return ok("ok");
     if (req.method === "GET" && url.pathname === "/__debug/slots") {
       const date = url.searchParams.get("date") || "";
-      const data = date ? await listAvailable(env, date) : { slots: [], avail: [], reserved: [] };
-      return new Response(JSON.stringify({ date, ...data }, null, 2), {
-        status: 200, headers: { "Content-Type": "application/json" },
-      });
+      const slots = await getSlots(env, date);
+      const resv = await getResv(env, date);
+      return ok({ date, slots, avail: slots.filter(t => !resv[t]), reserved: Object.keys(resv) });
     }
 
+    // LINE webhook
     if (req.method === "POST" && url.pathname === "/api/line/webhook") {
-      let body: any;
-      try { body = await req.json(); } catch { return new Response("ok", { status: 200 }); }
-      const events: LineEvent[] = body.events ?? [];
+      let body: any = {};
+      try { body = await req.json(); } catch { /* ignore */ }
+      const events: LineEvent[] = Array.isArray(body.events) ? body.events : [];
 
-      // 先に 200 を返して再送防止
-      const early = new Response("ok", { status: 200 });
-
-      ctx.waitUntil((async () => {
-        for (const e of events) {
-          try {
-            if (e.deliveryContext?.isRedelivery) { log("skip redelivery"); continue; }
-            if (e.type === "message" && e.message?.type === "text") {
-              await handleMessage(env, e, ctx);
-            } else {
-              log("ignore event", e.type);
-            }
-          } catch (err) {
-            console.error(err);
+      for (const e of events) {
+        try {
+          if (e.deliveryContext?.isRedelivery) { log("skip redelivery"); continue; }
+          if (e.type === "message" && e.message?.type === "text") {
+            await handleMessage(env, e); // 同期で実施 → 返信が確実に間に合う
           }
+        } catch (err) {
+          log("handle error", err);
         }
-      })());
-
-      return early;
+      }
+      return ok("ok");
     }
 
-    return new Response("Not Found", { status: 404 });
+    return new Response("not found", { status: 404 });
   },
 };
