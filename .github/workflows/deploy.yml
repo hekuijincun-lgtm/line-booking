@@ -5,6 +5,7 @@ on:
     branches: [ master, main ]
     paths:
       - "api/**"
+      - "!api/web/**"
 
 jobs:
   deploy:
@@ -16,28 +17,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Deploy with Wrangler
+        uses: cloudflare/wrangler-action@v3
         with:
-          node-version: 20
-
-      - name: Install Wrangler (pinned v3)
-        run: npm i -g wrangler@3.80.0
-
-      - name: Show tree (debug)
-        run: |
-          echo "pwd=$(pwd)"
-          ls -la
-          ls -la api
-
-      - name: Whoami (token check)
-        working-directory: api
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-        run: wrangler whoami
-
-      - name: Deploy
-        working-directory: api
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-        run: wrangler deploy
+          apiToken: ${{ secrets.CF_API_TOKEN }}  # ← 作り直したトークン
+          # accountId は toml に書いてあるので不要
+          workingDirectory: api
+          command: deploy
