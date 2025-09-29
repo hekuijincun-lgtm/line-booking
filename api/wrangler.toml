@@ -1,9 +1,11 @@
 name = "saas-api"
 main = "src/index.ts"
 compatibility_date = "2024-10-01"
+
+# 明示したい場合だけ有効化
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 
 [[kv_namespaces]]
 binding    = "LINE_BOOKING"
-id         = "22103efd0bd04365a2ec050a24b3dbc4"  # ← 本番（50a24b）
-preview_id = "03bbf9082957456cb4c18159d6788808"  # ← プレビュー
+id         = "22103efd0bd04365a2ec050a24b3dbc4"   # ←正しいID
+preview_id = "03bbf9082957456cb4c18159d6788808"
