@@ -23,18 +23,19 @@ jobs:
         with:
           node-version: "20"
 
-      # --- デバッグ: トークンで見えるかを事前チェック（失敗したら原因が明確になります）
+      # --- デバッグ: トークンでCloudflareにアクセスできるか検証
       - name: Whoami (token check)
-        run: |
-          npx wrangler@4 whoami
-          npx wrangler@4 kv namespace list | head -n 50 || true
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}   # ← ここがポイント
+        run: |
+          set -e
+          npx wrangler@4 whoami
+          npx wrangler@4 kv namespace list | head -n 50
 
       # --- 本番デプロイ
       - name: Deploy with Wrangler
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          apiToken: ${{ secrets.CF_API_TOKEN }}               # ← ここも CF_API_TOKEN
           workingDirectory: api
           command: deploy
