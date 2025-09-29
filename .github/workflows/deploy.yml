@@ -12,31 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ▼ デバッグ：トークンでKVが見えるか確認（一度通ったら消してOK）
-      - name: Setup Node (for debug cmds)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
-      - name: Debug: can the token see KV?
-        run: |
-          echo "== wrangler kv:namespace list =="
-          npx -y wrangler@4 kv:namespace list | head -n 50 || true
-          echo "== direct API check =="
-          curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
-            https://api.cloudflare.com/client/v4/accounts/0d18eef52ba66f8cddcf260265d14cf4/storage/kv/namespaces/22103efd0bd04365a2ec0502a4b3dbc4 | jq .
-        env:
-            CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-
-      # ▼ 本番デプロイ
       - name: Deploy with Wrangler
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}   # ← Secrets に保存したトークン
-          workingDirectory: api                   # ← wrangler.toml があるフォルダ
+          apiToken: ${{ secrets.CF_API_TOKEN }}  # ← GitHub Secrets に保存した最新トークン
+          workingDirectory: api                  # ← wrangler.toml があるフォルダ
           command: deploy
