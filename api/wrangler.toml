@@ -1,16 +1,58 @@
-name = "saas-api"
-main = "src/index.ts"
-compatibility_date = "2024-09-23"
+name: deploy / api (push, stable)
 
-[[kv_namespaces]]
-binding = "LINE_BOOKING"
-id = "22103efd0bd04365a2ec050a24b3dbc4"  # ← account_id は書かない
+on:
+  push:
+    paths:
+      - 'api/**'
+  workflow_dispatch:
 
-[[durable_objects.bindings]]
-name = "SLOT_LOCK"
-class_name = "SlotLock"
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
 
-# Freeプランは new_sqlite_classes 必須（※ tag は新名に）
-[[migrations]]
-tag = "v2-slot-lock"
-new_sqlite_classes = ["SlotLock"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Show files + wrangler.toml
+        run: |
+          ls -la
+          echo "--- api ---"
+          ls -la api || true
+          echo "--- wrangler.toml (masked id) ---"
+          sed -e 's/\(id = "\).*\("\)/\1***\2/' api/wrangler.toml || true
+
+      # 任意の事前チェック（失敗しても続行）
+      - name: Wrangler dry-run
+        working-directory: api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          WRANGLER_LOG: debug
+        run: npx -y wrangler@4.40.2 deploy --dry-run || true
+
+      - name: Deploy (CLI)
+        working-directory: api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          WRANGLER_LOG: debug
+        run: npx -y wrangler@4.40.2 deploy
+
+      # 失敗したら Wrangler の内部ログを吐く
+      - name: Dump wrangler logs (on fail)
+        if: failure()
+        run: |
+          LOG=$(ls -t ~/.config/.wrangler/logs/wrangler-*.log 2>/dev/null | head -n1 || true)
+          if [ -f "$LOG" ]; then
+            echo "===== Wrangler internal log ====="
+            sed -n '1,400p' "$LOG"
+            echo "===== end ====="
+          else
+            echo "No wrangler log file found."
+          fi
