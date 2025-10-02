@@ -2,18 +2,17 @@ name = "saas-api"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
 
-# --- KV (そのまま使う) ---
+# ---- KV (account_id は書かない) ----
 [[kv_namespaces]]
 binding = "LINE_BOOKING"
-id = "22103efd0bd04365a2ec050a24b3dbc4"   # ← account_id はここに書かない
+id = "22103efd0bd04365a2ec050a24b3dbc4"
 
-# --- Durable Objects (ロック用) ---
+# ---- Durable Objects (ロック用) ----
 [[durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# --- Migrations (★ここがポイント) ---
-# Freeプランは new_sqlite_classes を使う
+# ---- Migrations（★Freeは new_sqlite_classes）----
 [[migrations]]
-tag = "v2-slot-lock"                     # 既存と被らない新しいタグ名に
+tag = "v2-slot-lock"               # 新しいタグ名（被ったら v3-slot-lock に変更）
 new_sqlite_classes = ["SlotLock"]
