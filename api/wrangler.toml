@@ -9,3 +9,11 @@ account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 binding    = "LINE_BOOKING"
 id         = "22103efd0bd04365a2ec050a24b3dbc4"   # ←正しいID
 preview_id = "03bbf9082957456cb4c18159d6788808"
+# ===== Durable Objects: 予約枠ロック用 =====
+[[durable_objects.bindings]]
+name = "SLOT_LOCK"
+class_name = "SlotLock"
+
+[[migrations]]
+tag = "v1-slot-lock"
+new_classes = ["SlotLock"]
