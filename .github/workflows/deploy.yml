@@ -19,7 +19,6 @@ jobs:
         with:
           node-version: 20
 
-      # デバッグ: 位置と設定を出す
       - name: Show files + wrangler.toml
         run: |
           ls -la
@@ -28,18 +27,32 @@ jobs:
           echo "--- wrangler.toml (masked id) ---"
           sed -e 's/\(id = "\).*\("\)/\1***\2/' api/wrangler.toml || true
 
-      # まずはドライランで詳細ログを**必ず表示**（失敗しても続行）
-      - name: Wrangler dry-run (verbose)
+      # 任意の事前チェック（失敗しても続行）
+      - name: Wrangler dry-run
         working-directory: api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-        run: npx -y wrangler@4.40.2 deploy --dry-run --verbose || true
+          WRANGLER_LOG: debug
+        run: npx -y wrangler@4.40.2 deploy --dry-run || true
 
-      # 本番デプロイ（ここで失敗したらログ全文が出る）
-      - name: Deploy (CLI verbose)
+      - name: Deploy (CLI)
         working-directory: api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-        run: npx -y wrangler@4.40.2 deploy --verbose
+          WRANGLER_LOG: debug
+        run: npx -y wrangler@4.40.2 deploy
+
+      # 失敗したら Wrangler の内部ログを吐く
+      - name: Dump wrangler logs (on fail)
+        if: failure()
+        run: |
+          LOG=$(ls -t ~/.config/.wrangler/logs/wrangler-*.log 2>/dev/null | head -n1 || true)
+          if [ -f "$LOG" ]; then
+            echo "===== Wrangler internal log ====="
+            sed -n '1,400p' "$LOG"
+            echo "===== end ====="
+          else
+            echo "No wrangler log file found."
+          fi
