@@ -1,19 +1,28 @@
+# api/wrangler.toml
 name = "saas-api"
 main = "src/index.ts"
-compatibility_date = "2024-09-01"
-minify = true
+compatibility_date = "2024-10-01"
+compatibility_flags = ["nodejs_compat"]
+tsconfig = "tsconfig.json"
+workers_dev = true
 
-# Workers KV バインド（本番 / プレビュー）
-kv_namespaces = [
-  { binding = "LINE_BOOKING", id = "22103efd0bd04365a2ec050a24b3dbc4", preview_id = "03bbf9082957456cb4c18159d6788808" }
-]
+# --- KV（本番）: あなたの実ID ---
+[[kv_namespaces]]
+binding = "LINE_BOOKING"
+id = "22103efd0bd04365a2ec050a24b3dbc4"        # ← 本番 KV
+preview_id = "03bbf9082957456cb4c18159d6788808" # ← dev/preview 用（あるなら）
 
-[durable_objects]
-bindings = [
-  { name = "SLOT_LOCK", class_name = "SlotLock" }
-]
+# --- Durable Object ---
+[[durable_objects.bindings]]
+name = "SLOT_LOCK"
+class_name = "SlotLock"
 
-# 既存の DO マイグレーション警告を消すためのタグ
+# 既に適用済みでも無害（警告だけ）です
 [[migrations]]
 tag = "v3-slot-lock"
 new_classes = ["SlotLock"]
+
+# 任意の環境変数
+[vars]
+BASE_URL = "https://saas-api.hekujiincun.workers.dev"
+# SLACK_WEBHOOK_URL = ""
