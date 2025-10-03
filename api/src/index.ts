@@ -11,6 +11,13 @@ export interface Env {
 
 const TZ = "Asia/Tokyo";
 
+// ===================== エラーヘルパ（1101対策のログ用） =====================
+function toPlainError(e: unknown) {
+  if (e instanceof Error) return { name: e.name, message: e.message, stack: e.stack };
+  try { return { note: "non-error throw", value: JSON.stringify(e) }; }
+  catch { return { note: "non-error throw (unserializable)" }; }
+}
+
 // ========================= Durable Object: SlotLock =========================
 export class SlotLock {
   state: DurableObjectState;
@@ -59,12 +66,11 @@ function uniq(arr: string[]) {
   return [...new Set(arr)];
 }
 function isYmd(s: string) { return /^\d{4}-\d{2}-\d{2}$/.test(s); }
-function isYm(s: string) { return /^\d{4}-\d{2}$/.test(s); }
+function isYm(s: string) { return /^\d{4}-(0[1-9]|1[0-2])$/.test(s); }
 function fmtSlotsMessage(date: string, opens: string[], env: Env) {
   return [
     `📅 ${date} の空き状況`,
     `空き: ${opens.length ? opens.join(", ") : "なし"}`,
-    // 予約済み一覧は /list で出す。シンプル表示にしておく
   ].join("\n");
 }
 // LINE Quick Reply（最低限）
@@ -115,9 +121,9 @@ function normalizeDateArg(s: string): string | null {
 }
 
 // ========================== KV Keys ==========================
-const K_SLOTS = (date: string) => `S:${date}`;                 // JSON string[] times
-const K_RES = (date: string, time: string) => `R:${date} ${time}`; // JSON { userId, userName, service, ts }
-const K_USER = (uid: string, date: string, time: string) => `U:${uid}:${date} ${time}`;
+const K_SLOTS = (date: string) => `S:${date}`;                      // JSON string[] times
+const K_RES   = (date: string, time: string) => `R:${date} ${time}`; // JSON { userId, userName, service, ts }
+const K_USER  = (uid: string, date: string, time: string) => `U:${uid}:${date} ${time}`;
 
 // ======================= LINE REST Helpers ===================
 async function lineReply(env: Env, replyToken: string, text: string) {
@@ -288,30 +294,67 @@ async function handleExportMonth(env: Env, args: string[], replyToken: string, o
   return lineReply(env, replyToken, `📦 CSVを作ったよ！\n${url}\nブラウザで開いてダウンロードしてね。`);
 }
 
-// ============================ HTTP Export ============================
-async function handleHttpExport(req: Request, env: Env) {
+// ============================ HTTP Export（堅牢版） ============================
+// Error 1101 を防ぐため、ストリーミング + 例外はログして空/途中CSVを返す
+async function handleHttpExport(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
-  const ym = url.searchParams.get("ym") || "";
-  if (!isYm(ym)) return new Response("bad request", { status: 400 });
-
-  const prefix = `R:${ym}-`;
-  const it = await env.LINE_BOOKING.list({ prefix, limit: 2000 });
-  let csv = "date,time,userId,userName,service\n";
-  for (const k of it.keys) {
-    const v = await env.LINE_BOOKING.get(k.name);
-    if (!v) continue;
-    const rec = JSON.parse(v);
-    const m = k.name.match(/^R:(\d{4}-\d{2}-\d{2})\s(.+)$/);
-    if (!m) continue;
-    const date = m[1], time = m[2];
-    const row = [date, time, rec.userId ?? "", rec.userName ?? "", rec.service ?? ""]
-      .map(s => String(s).replace(/"/g, '""'));
-    csv += `${row.join(",")}\n`;
+  const ym = (url.searchParams.get("ym") || "").trim();
+  if (!isYm(ym)) {
+    return new Response("bad request (use ?ym=YYYY-MM)", { status: 400, headers: { "content-type": "text/plain; charset=utf-8" } });
   }
-  return new Response(csv, {
+
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const write = (s: string) => writer.write(s);
+
+  const esc = (s: unknown) => {
+    let t = s == null ? "" : String(s);
+    return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+
+  // ヘッダ行
+  write("date,time,userId,userName,service,raw\n");
+
+  try {
+    const prefix = `R:${ym}-`; // 例: R:2025-10-05 10:00
+    let cursor: string | undefined;
+
+    do {
+      const page = await env.LINE_BOOKING.list({ prefix, cursor, limit: 1000 });
+      for (const k of page.keys) {
+        const key = k.name; // R:YYYY-MM-DD HH:MM
+        const raw = (await env.LINE_BOOKING.get(key)) ?? "";
+        const m = /^R:(\d{4}-\d{2}-\d{2})\s(\d{2}:\d{2})$/.exec(key);
+        const date = m?.[1] ?? "";
+        const time = m?.[2] ?? "";
+
+        let userId = "", userName = "", service = "";
+        try {
+          const rec = JSON.parse(raw);
+          userId = String(rec.userId ?? "");
+          userName = String(rec.userName ?? "");
+          service = String(rec.service ?? "");
+        } catch {
+          // JSONでない保存でも問題なし
+        }
+
+        write(`${date},${time},${esc(userId)},${esc(userName)},${esc(service)},${esc(raw)}\n`);
+      }
+      cursor = page.list_complete ? undefined : page.cursor;
+    } while (cursor);
+
+  } catch (e) {
+    console.error("EXPORT_FAILED", toPlainError(e), { ym });
+    // 途中まででも返す
+  } finally {
+    await writer.close();
+  }
+
+  return new Response(readable, {
     headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="booking-${ym}.csv"`,
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="booking-${ym}.csv"`,
+      "cache-control": "no-store",
     },
   });
 }
@@ -319,74 +362,83 @@ async function handleHttpExport(req: Request, env: Env) {
 // ============================ Router ============================
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(req.url);
+    try {
+      const url = new URL(req.url);
 
-    // CSVダウンロード
-    if (url.pathname === "/api/export" && req.method === "GET") {
-      return handleHttpExport(req, env);
-    }
-
-    // LINE Webhook
-    if (url.pathname === "/api/line/webhook" && req.method === "POST") {
-      const body = await req.json<any>();
-      const events = body.events || [];
-      for (const ev of events) {
-        const replyToken: string | undefined = ev.replyToken;
-        const messageText: string | undefined = ev.message?.text;
-        const userId: string | undefined = ev.source?.userId;
-        const userName: string | undefined = ev.source?.userId; // 必要ならプロフィールAPIで取得
-
-        if (!replyToken || !messageText || !userId) continue;
-
-        // コマンド判定
-        const z = messageText.normalize("NFKC").trim();
-        const [cmdRaw, ...rest] = z.split(" ");
-        const cmd = cmdRaw.toLowerCase();
-
-        try {
-          if (cmd === "/set-slots" || cmd === "set-slots") {
-            await handleSetSlots(env, rest, replyToken);
-          } else if (cmd === "/slots" || cmd === "slots") {
-            await handleSlots(env, rest, replyToken);
-          } else if (cmd === "/reserve" || cmd === "reserve") {
-            await handleReserve(env, z, replyToken, userId, userName);
-          } else if (cmd === "/my" || cmd === "my") {
-            await handleMy(env, rest, replyToken, userId);
-          } else if (cmd === "/cancel" || cmd === "cancel") {
-            await handleCancel(env, rest, replyToken, userId);
-          } else if (cmd === "/list" || cmd === "list") {
-            await handleListAdmin(env, rest, replyToken);
-          } else if (cmd === "/export" || cmd === "export") {
-            const origin = `${url.protocol}//${url.host}`;
-            await handleExportMonth(env, rest, replyToken, origin);
-          } else {
-            // それ以外はガイド表示
-            await lineReply(env, replyToken,
-              [
-                "使えるコマンド👇",
-                "/set-slots YYYY-MM-DD 10:00,11:00,16:30",
-                "/slots YYYY-MM-DD",
-                "/reserve YYYY-MM-DD HH:MM [サービス]",
-                "/my [YYYY-MM-DD|YYYY-MM]",
-                "/cancel YYYY-MM-DD HH:MM",
-                "/list YYYY-MM-DD",
-                "/export YYYY-MM",
-              ].join("\n")
-            );
-          }
-        } catch (e) {
-          await lineReply(env, replyToken, "内部エラーが起きたかも🙏 もう一度試してみてね。");
-          console.error(e);
-        }
+      // CSVダウンロード
+      if (url.pathname === "/api/export" && req.method === "GET") {
+        return await handleHttpExport(req, env);
       }
-      return new Response("OK");
-    }
 
-    // 動作確認
-    if (url.pathname === "/" && req.method === "GET") {
-      return new Response("OK / SaaS Booking Worker");
-    }
+      // LINE Webhook
+      if (url.pathname === "/api/line/webhook" && req.method === "POST") {
+        const body = await req.json<any>().catch(() => ({ events: [] }));
+        const events = body.events || [];
+        for (const ev of events) {
+          const replyToken: string | undefined = ev.replyToken;
+          const messageText: string | undefined = ev.message?.text;
+          const userId: string | undefined = ev.source?.userId;
+          const userName: string | undefined = ev.source?.userId; // 必要ならプロフィールAPIで取得
 
-    return new Response("Not Found", { status: 404 });
+          if (!replyToken || !messageText || !userId) continue;
+
+          // コマンド判定
+          const z = messageText.normalize("NFKC").trim();
+          const [cmdRaw, ...rest] = z.split(" ");
+          const cmd = cmdRaw.toLowerCase();
+
+          try {
+            if (cmd === "/set-slots" || cmd === "set-slots") {
+              await handleSetSlots(env, rest, replyToken);
+            } else if (cmd === "/slots" || cmd === "slots") {
+              await handleSlots(env, rest, replyToken);
+            } else if (cmd === "/reserve" || cmd === "reserve") {
+              await handleReserve(env, z, replyToken, userId, userName);
+            } else if (cmd === "/my" || cmd === "my") {
+              await handleMy(env, rest, replyToken, userId);
+            } else if (cmd === "/cancel" || cmd === "cancel") {
+              await handleCancel(env, rest, replyToken, userId);
+            } else if (cmd === "/list" || cmd === "list") {
+              await handleListAdmin(env, rest, replyToken);
+            } else if (cmd === "/export" || cmd === "export") {
+              const origin = `${url.protocol}//${url.host}`;
+              await handleExportMonth(env, rest, replyToken, origin);
+            } else {
+              // それ以外はガイド表示
+              await lineReply(env, replyToken,
+                [
+                  "使えるコマンド👇",
+                  "/set-slots YYYY-MM-DD 10:00,11:00,16:30",
+                  "/slots YYYY-MM-DD",
+                  "/reserve YYYY-MM-DD HH:MM [サービス]",
+                  "/my [YYYY-MM-DD|YYYY-MM]",
+                  "/cancel YYYY-MM-DD HH:MM",
+                  "/list YYYY-MM-DD",
+                  "/export YYYY-MM",
+                ].join("\n")
+              );
+            }
+          } catch (e) {
+            await lineReply(env, replyToken, "内部エラーが起きたかも🙏 もう一度試してみてね。");
+            console.error(e);
+          }
+        }
+        return new Response("OK");
+      }
+
+      // 動作確認
+      if (url.pathname === "/" && req.method === "GET") {
+        return new Response("OK / SaaS Booking Worker");
+      }
+
+      return new Response("Not Found", { status: 404 });
+    } catch (e) {
+      // ← ここで最終防衛。Error 1101 を出さず 500 を返す
+      console.error("UNCAUGHT_FETCH_ERROR", toPlainError(e), { url: (req as any)?.url });
+      return new Response("Internal Server Error", {
+        status: 500,
+        headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+      });
+    }
   },
 };
