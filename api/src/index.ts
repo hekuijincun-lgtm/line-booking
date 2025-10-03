@@ -66,7 +66,7 @@ function uniq(arr: string[]) {
   return [...new Set(arr)];
 }
 function isYmd(s: string) { return /^\d{4}-\d{2}-\d{2}$/.test(s); }
-function isYm(s: string) { return /^\d{4}-(0[1-9]|1[0-2])$/.test(s); }
+function isYm(s: string)  { return /^\d{4}-(0[1-9]|1[0-2])$/.test(s); }
 function fmtSlotsMessage(date: string, opens: string[], env: Env) {
   return [
     `📅 ${date} の空き状況`,
@@ -294,69 +294,82 @@ async function handleExportMonth(env: Env, args: string[], replyToken: string, o
   return lineReply(env, replyToken, `📦 CSVを作ったよ！\n${url}\nブラウザで開いてダウンロードしてね。`);
 }
 
-// ============================ HTTP Export（堅牢版） ============================
-// Error 1101 を防ぐため、ストリーミング + 例外はログして空/途中CSVを返す
+// ============================ HTTP Export（安全・非ストリーミング版） ============================
 async function handleHttpExport(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
   const ym = (url.searchParams.get("ym") || "").trim();
   if (!isYm(ym)) {
-    return new Response("bad request (use ?ym=YYYY-MM)", { status: 400, headers: { "content-type": "text/plain; charset=utf-8" } });
+    return new Response("bad request (use ?ym=YYYY-MM)", {
+      status: 400,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
   }
-
-  const { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
-  const write = (s: string) => writer.write(s);
 
   const esc = (s: unknown) => {
     let t = s == null ? "" : String(s);
     return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
   };
 
-  // ヘッダ行
-  write("date,time,userId,userName,service,raw\n");
+  let csv = "date,time,userId,userName,service,raw\n";
+  const prefix = `R:${ym}-`;
 
   try {
-    const prefix = `R:${ym}-`; // 例: R:2025-10-05 10:00
-    let cursor: string | undefined;
+    let cursor: string | undefined = undefined;
 
-    do {
-      const page = await env.LINE_BOOKING.list({ prefix, cursor, limit: 1000 });
-      for (const k of page.keys) {
-        const key = k.name; // R:YYYY-MM-DD HH:MM
-        const raw = (await env.LINE_BOOKING.get(key)) ?? "";
-        const m = /^R:(\d{4}-\d{2}-\d{2})\s(\d{2}:\d{2})$/.exec(key);
+    for (;;) {
+      const opts: Record<string, unknown> = { prefix, limit: 1000 };
+      if (cursor) opts.cursor = cursor;
+
+      const page = await env.LINE_BOOKING.list(opts as any);
+
+      for (const { name } of page.keys) {
+        // name: R:YYYY-MM-DD HH:MM
+        const m = /^R:(\d{4}-\d{2}-\d{2})\s(\d{2}:\d{2})$/.exec(name);
         const date = m?.[1] ?? "";
         const time = m?.[2] ?? "";
 
-        let userId = "", userName = "", service = "";
+        let raw = "";
         try {
-          const rec = JSON.parse(raw);
-          userId = String(rec.userId ?? "");
-          userName = String(rec.userName ?? "");
-          service = String(rec.service ?? "");
-        } catch {
-          // JSONでない保存でも問題なし
+          raw = (await env.LINE_BOOKING.get(name)) ?? "";
+        } catch (e) {
+          console.error("KV_GET_FAIL", toPlainError(e), { name });
+          raw = "";
         }
 
-        write(`${date},${time},${esc(userId)},${esc(userName)},${esc(service)},${esc(raw)}\n`);
+        let userId = "", userName = "", service = "";
+        if (raw) {
+          try {
+            const rec = JSON.parse(raw);
+            userId = String(rec.userId ?? "");
+            userName = String(rec.userName ?? "");
+            service = String(rec.service ?? "");
+          } catch {
+            // JSONでなくてもOK（rawにそのまま入る）
+          }
+        }
+
+        csv += `${date},${time},${esc(userId)},${esc(userName)},${esc(service)},${esc(raw)}\n`;
       }
-      cursor = page.list_complete ? undefined : page.cursor;
-    } while (cursor);
+
+      if (page.list_complete) break;
+      cursor = page.cursor;
+    }
+
+    return new Response(csv, {
+      headers: {
+        "content-type": "text/csv; charset=utf-8",
+        "content-disposition": `attachment; filename="booking-${ym}.csv"`,
+        "cache-control": "no-store",
+      },
+    });
 
   } catch (e) {
-    console.error("EXPORT_FAILED", toPlainError(e), { ym });
-    // 途中まででも返す
-  } finally {
-    await writer.close();
+    console.error("EXPORT_TOP_FAIL", toPlainError(e), { ym });
+    return new Response("Internal Server Error", {
+      status: 500,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
   }
-
-  return new Response(readable, {
-    headers: {
-      "content-type": "text/csv; charset=utf-8",
-      "content-disposition": `attachment; filename="booking-${ym}.csv"`,
-      "cache-control": "no-store",
-    },
-  });
 }
 
 // ============================ Router ============================
@@ -433,7 +446,7 @@ export default {
 
       return new Response("Not Found", { status: 404 });
     } catch (e) {
-      // ← ここで最終防衛。Error 1101 を出さず 500 を返す
+      // 最終防衛：必ずHTTP応答を返す（= 1101回避）
       console.error("UNCAUGHT_FETCH_ERROR", toPlainError(e), { url: (req as any)?.url });
       return new Response("Internal Server Error", {
         status: 500,
