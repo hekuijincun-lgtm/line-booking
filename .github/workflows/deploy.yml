@@ -1,56 +1,51 @@
-name: deploy / api (push, stable)
+name: Deploy Workers
 
 on:
   push:
-    paths:
-      - 'api/**'
+    branches: [ main ]    # main 直pushで staging に自動デプロイ
   workflow_dispatch:
+    inputs:
+      env:
+        description: "Deploy environment"
+        required: true
+        default: "prod"
+        type: choice
+        options: [ "staging", "prod" ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
+    env:
+      CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: npm i -g wrangler@4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Show files + wrangler.toml
+      # Secrets を環境変数として渡す（lineReply 用）
+      - name: Set secrets
         run: |
-          ls -la
-          echo "--- api ---"
-          ls -la api || true
-          echo "--- wrangler.toml (masked id) ---"
-          sed -e 's/\(id = "\).*\("\)/\1***\2/' api/wrangler.toml || true
+          wrangler secret put LINE_CHANNEL_ACCESS_TOKEN --env=staging <<< "${{ secrets.LINE_CHANNEL_ACCESS_TOKEN_STG }}"
+          wrangler secret put LINE_CHANNEL_ACCESS_TOKEN --env=prod    <<< "${{ secrets.LINE_CHANNEL_ACCESS_TOKEN_PROD }}"
+          wrangler secret put LINE_CHANNEL_SECRET       --env=staging <<< "${{ secrets.LINE_CHANNEL_SECRET_STG }}"
+          wrangler secret put LINE_CHANNEL_SECRET       --env=prod    <<< "${{ secrets.LINE_CHANNEL_SECRET_PROD }}"
+          wrangler secret put ADMINS                    --env=staging <<< "${{ secrets.ADMINS_STG }}"
+          wrangler secret put ADMINS                    --env=prod    <<< "${{ secrets.ADMINS_PROD }}"
+          # 任意: Slack 通知
+          if [[ -n "${{ secrets.SLACK_WEBHOOK_URL_STG }}" ]]; then wrangler secret put SLACK_WEBHOOK_URL --env=staging <<< "${{ secrets.SLACK_WEBHOOK_URL_STG }}"; fi
+          if [[ -n "${{ secrets.SLACK_WEBHOOK_URL_PROD }}" ]]; then wrangler secret put SLACK_WEBHOOK_URL --env=prod    <<< "${{ secrets.SLACK_WEBHOOK_URL_PROD }}"; fi
 
-      - name: Wrangler dry-run
-        working-directory: api
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          WRANGLER_LOG: debug
-        run: npx -y wrangler@4.40.2 deploy --dry-run || true
+      - name: Deploy to staging on push
+        if: ${{ github.event_name == 'push' }}
+        run: wrangler deploy --env=staging
 
-      - name: Deploy (CLI)
-        working-directory: api
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          WRANGLER_LOG: debug
-        run: npx -y wrangler@4.40.2 deploy
-
-      - name: Dump wrangler logs (on fail)
-        if: failure()
+      - name: Deploy to selected env on manual run
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          LOG=$(ls -t ~/.config/.wrangler/logs/wrangler-*.log 2>/dev/null | head -n1 || true)
-          if [ -f "$LOG" ]; then
-            echo "===== Wrangler internal log ====="
-            sed -n '1,400p' "$LOG"
-            echo "===== end ====="
+          if [ "${{ inputs.env }}" = "staging" ]; then
+            wrangler deploy --env=staging
           else
-            echo "No wrangler log file found."
+            wrangler deploy --env=prod
           fi
