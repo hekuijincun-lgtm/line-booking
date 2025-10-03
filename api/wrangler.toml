@@ -1,33 +1,19 @@
-# api/wrangler.toml
 name = "saas-api"
 main = "src/index.ts"
-compatibility_date = "2024-10-01"
+compatibility_date = "2024-09-01"
+minify = true
 
-# --- KV (本番/デフォルト) ---
+# ★ 本番 KV をトップレベルに直接バインド（ID はご指定のもの）
 kv_namespaces = [
-  { binding = "LINE_BOOKING", id = "22103efd0bd04365a2ec050a24b3dbc4" }
+  { binding = "LINE_BOOKING", id = "22103efd0bd04365a2ec050a24b3dbc4", preview_id = "22103efd0bd04365a2ec050a24b3dbc4" }
 ]
 
-# --- Durable Objects ---
-[[durable_objects.bindings]]
-name = "SLOT_LOCK"
-class_name = "SlotLock"
+[durable_objects]
+bindings = [
+  { name = "SLOT_LOCK", class_name = "SlotLock" }
+]
 
-# 既存のスクリプトに合わせたマイグレーションタグ
+# 既存ワーカーが持っている DO のマイグレーションタグに合わせておく（警告消し）
 [[migrations]]
-tag = "v3-slot-lock"
-new_classes = ["SlotLock"]
-
-# --- staging 環境（GitHub Actions 等が -e staging を暗黙指定してもOKにするため）---
-[env.staging]
-kv_namespaces = [
-  { binding = "LINE_BOOKING", id = "22103efd0bd04365a2ec050a24b3dbc4" }
-]
-
-[[env.staging.durable_objects.bindings]]
-name = "SLOT_LOCK"
-class_name = "SlotLock"
-
-[[env.staging.migrations]]
 tag = "v3-slot-lock"
 new_classes = ["SlotLock"]
