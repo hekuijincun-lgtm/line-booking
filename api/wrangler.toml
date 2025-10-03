@@ -2,14 +2,32 @@ name = "saas-api"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
 
+# --- 共通バインド ---
 [[kv_namespaces]]
 binding = "LINE_BOOKING"
-id = "22103efd0bd04365a2ec050a24b3dbc4"
+id = "REPLACE_WITH_KV_ID_STAGING"   # staging用（prodは env.prod で上書き）
 
 [[durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
+# --- 初回だけ DO を登録する migration ---
 [[migrations]]
-tag = "v3-slot-lock"   # かぶり回避のためアップ
-new_sqlite_classes = ["SlotLock"]
+tag = "0001_add_slotlock"
+new_classes = ["SlotLock"]
+
+# ===== staging =====
+[env.staging]
+name = "saas-api-stg"
+
+[[env.staging.kv_namespaces]]
+binding = "LINE_BOOKING"
+id = "REPLACE_WITH_KV_ID_STAGING"
+
+# ===== prod =====
+[env.prod]
+name = "saas-api-prod"
+
+[[env.prod.kv_namespaces]]
+binding = "LINE_BOOKING"
+id = "REPLACE_WITH_KV_ID_PROD"
