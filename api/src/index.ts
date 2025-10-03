@@ -276,3 +276,17 @@ export default {
     return new Response("Not Found", { status: 404 });
   },
 };
+
+
+
+// --- Slack 通知（任意; URL 未設定なら何もしない） ---
+async function notifySlack(env: Env, title: string, payload: any) {
+  // @ts-ignore
+  const url = (env as any).SLACK_WEBHOOK_URL || "";
+  if (!url) return;
+  const body = {
+    text: `*[${title}]*\n\`\`\`${JSON.stringify(payload, null, 2)}\`\`\``
+  };
+  await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .catch(() => {});
+}
