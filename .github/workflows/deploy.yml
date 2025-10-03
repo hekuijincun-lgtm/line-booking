@@ -27,7 +27,6 @@ jobs:
           echo "--- wrangler.toml (masked id) ---"
           sed -e 's/\(id = "\).*\("\)/\1***\2/' api/wrangler.toml || true
 
-      # 任意の事前チェック（失敗しても続行）
       - name: Wrangler dry-run
         working-directory: api
         env:
@@ -44,7 +43,6 @@ jobs:
           WRANGLER_LOG: debug
         run: npx -y wrangler@4.40.2 deploy
 
-      # 失敗したら Wrangler の内部ログを吐く
       - name: Dump wrangler logs (on fail)
         if: failure()
         run: |
