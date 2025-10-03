@@ -1,5 +1,5 @@
 // src/index.ts
-// SaaS予約（CSVなし）
+// SaaS予約（CSVなし） + 署名検証 + 管理者限定 + RateLimit + /copy-slots + /report
 // Webhook: /api/line/webhook
 // Health:  /__health
 
@@ -7,8 +7,10 @@ export interface Env {
   LINE_BOOKING: KVNamespace;
   SLOT_LOCK: DurableObjectNamespace;
   LINE_CHANNEL_ACCESS_TOKEN: string; // wrangler secret
+  LINE_CHANNEL_SECRET: string;       // ← 署名検証で使用（必須）
+  ADMINS?: string;                   // ← "Uxxxx, Uyyyy" カンマ区切り
   BASE_URL?: string;
-  SLACK_WEBHOOK_URL?: string;       // ← 追加（任意）
+  SLACK_WEBHOOK_URL?: string;       // 任意
 }
 
 const TZ = "Asia/Tokyo";
@@ -24,6 +26,38 @@ const isYm  = (s: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
 const K_SLOTS = (date: string) => `S:${date}`;
 const K_RES   = (date: string, time: string) => `R:${date} ${time}`;
 const K_USER  = (uid: string, date: string, time: string) => `U:${uid}:${date} ${time}`;
+
+// 管理者判定
+function isAdmin(uid: string, env: Env) {
+  const list = (env.ADMINS || "").split(",").map(s => s.trim()).filter(Boolean);
+  return list.includes(uid);
+}
+
+// LINE署名検証
+function toBase64(ab: ArrayBuffer): string {
+  let s = ""; const v = new Uint8Array(ab);
+  for (let i = 0; i < v.length; i++) s += String.fromCharCode(v[i]);
+  return btoa(s);
+}
+async function verifyLineSignature(req: Request, env: Env, raw: string): Promise<boolean> {
+  const sig = req.headers.get("x-line-signature") || "";
+  if (!sig || !env.LINE_CHANNEL_SECRET) return false;
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(env.LINE_CHANNEL_SECRET),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw));
+  return sig === toBase64(mac);
+}
+
+// RateLimit（uidごと 秒窓）
+async function rateLimit(env: Env, uid: string, limit = 10, windowSec = 60) {
+  const bucket = `RL:${uid}:${Math.floor(Date.now() / 1000 / windowSec)}`;
+  const v = parseInt((await env.LINE_BOOKING.get(bucket)) || "0", 10) + 1;
+  if (v === 1) await env.LINE_BOOKING.put(bucket, String(v), { expirationTtl: windowSec });
+  else await env.LINE_BOOKING.put(bucket, String(v));
+  return v <= limit;
+}
 
 const quickActions = () => ({
   items: [
@@ -52,14 +86,9 @@ const fmtSlots = (date: string, opens: string[]) =>
 async function notifySlack(env: Env, title: string, payload: any) {
   const url = env.SLACK_WEBHOOK_URL || "";
   if (!url) return;
-  const body = {
-    text: `*[${title}]*\n\`\`\`${JSON.stringify(payload, null, 2)}\`\`\``,
-  };
-  await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  }).catch(() => {});
+  const body = { text: `*[${title}]*\n\`\`\`${JSON.stringify(payload, null, 2)}\`\`\`` };
+  await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .catch(() => {});
 }
 
 // =============== 入力正規化 ===============
@@ -161,7 +190,6 @@ async function handleReserve(env: Env, z: string, replyToken: string, userId: st
     return lineReply(env, replyToken, `✅ 予約を登録したよ。\n日時: ${date} ${time}\n内容: ${service}`);
   } catch (e: any) {
     if (e?.message === "LOCKED") return lineReply(env, replyToken, "同時に予約が集中してるよ！ 少し待ってもう一度だけ試してね🙏");
-    // 失敗をSlackへ
     await notifySlack(env, "RESERVE_FAIL", { date, time, userId, err: e?.message || String(e) });
     throw e;
   } finally {
@@ -240,6 +268,50 @@ async function handleList(env: Env, args: string[], replyToken: string) {
                 : "その日の予約はまだ無いよ🗓️");
 }
 
+// 追加：枠コピペ
+async function handleCopySlots(env: Env, args: string[], replyToken: string) {
+  // /copy-slots 2025-10-05 2025-10-12
+  if (args.length < 2) return lineReply(env, replyToken, "使い方：/copy-slots YYYY-MM-DD YYYY-MM-DD");
+  const src = normalizeDateArg(args[0]); const dst = normalizeDateArg(args[1]);
+  if (!src || !dst) return lineReply(env, replyToken, "日付の形式が変だよ（例：2025-10-05）");
+  const s = await env.LINE_BOOKING.get(K_SLOTS(src));
+  const slots: string[] = s ? JSON.parse(s) : [];
+  await env.LINE_BOOKING.put(K_SLOTS(dst), JSON.stringify(slots));
+  return lineReply(env, replyToken, `✅ 枠をコピーしたよ。\n${src} → ${dst}\n${slots.join(", ")}`);
+}
+
+// 追加：月次サマリ
+async function handleReport(env: Env, args: string[], replyToken: string) {
+  // /report 2025-10
+  if (args.length < 1) return lineReply(env, replyToken, "使い方：/report YYYY-MM");
+  const ym = args[0].normalize("NFKC");
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) return lineReply(env, replyToken, "月の形式が変だよ（例：2025-10）");
+
+  const prefix = `R:${ym}-`;
+  const it = await env.LINE_BOOKING.list({ prefix, limit: 2000 });
+  const dayCount: Record<string, number> = {};
+  const byService: Record<string, number> = {};
+
+  for (const k of it.keys) {
+    const m = /^R:(\d{4}-\d{2}-\d{2})\s(.+)$/.exec(k.name);
+    if (!m) continue;
+    const d = m[1]; dayCount[d] = (dayCount[d] || 0) + 1;
+    const recStr = await env.LINE_BOOKING.get(k.name); if (!recStr) continue;
+    try {
+      const rec = JSON.parse(recStr);
+      const s = String(rec.service || "未指定");
+      byService[s] = (byService[s] || 0) + 1;
+    } catch {}
+  }
+
+  const days = Object.entries(dayCount).sort((a,b)=>a[0].localeCompare(b[0]))
+               .map(([d,c])=>`・${d} : ${c}件`).join("\n") || "（なし）";
+  const svc  = Object.entries(byService).sort((a,b)=>b[1]-a[1])
+               .map(([s,c])=>`・${s} : ${c}件`).join("\n") || "（なし）";
+  const total = Object.values(dayCount).reduce((a,b)=>a+b,0);
+  return lineReply(env, replyToken, [`【${ym} レポート】合計 ${total}件`, "— 日別 —", days, "— サービス別 —", svc].join("\n"));
+}
+
 // =============== Router ===============
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
@@ -249,27 +321,62 @@ export default {
       if (url.pathname === "/__health") return new Response("ok");
 
       if (url.pathname === "/api/line/webhook" && req.method === "POST") {
-        const body = await req.json<any>().catch(() => ({ events: [] }));
+        // ---- 署名検証（生ボディで） ----
+        const raw = await req.text();
+        if (!(await verifyLineSignature(req, env, raw))) {
+          await notifySlack(env, "LINE_SIGNATURE_BAD", { url: req.url });
+          return new Response("unauthorized", { status: 401 });
+        }
+        const body = JSON.parse(raw || "{}");
         const events = body.events || [];
+
         for (const ev of events) {
           const replyToken: string | undefined = ev.replyToken;
           const messageText: string | undefined = ev.message?.text;
           const userId: string | undefined = ev.source?.userId;
-          const userName: string | undefined = ev.source?.userId; // 必要ならプロフィールAPIへ
+          const userName: string | undefined = ev.source?.userId; // 実運用はプロフィールAPIへ
           if (!replyToken || !messageText || !userId) continue;
+
+          // ---- RateLimit ----
+          if (!(await rateLimit(env, userId))) {
+            await lineReply(env, replyToken, "リクエストが多すぎるみたい。少し待ってから試してね🙏");
+            continue;
+          }
 
           const z = messageText.normalize("NFKC").trim();
           const [cmdRaw, ...rest] = z.split(" ");
-          const cmd = cmdRaw.toLowerCase();
+          const cmd = (cmdRaw || "").toLowerCase();
 
           try {
-            if (cmd === "/set-slots" || cmd === "set-slots") await handleSetSlots(env, rest, replyToken);
-            else if (cmd === "/slots"  || cmd === "slots")    await handleSlots(env, rest, replyToken);
-            else if (cmd === "/reserve"|| cmd === "reserve")  await handleReserve(env, z, replyToken, userId, userName);
-            else if (cmd === "/my"     || cmd === "my")       await handleMy(env, rest, replyToken, userId);
-            else if (cmd === "/cancel" || cmd === "cancel")   await handleCancel(env, rest, replyToken, userId);
-            else if (cmd === "/list"   || cmd === "list")     await handleList(env, rest, replyToken);
-            else {
+            if (cmd === "/set-slots" || cmd === "set-slots") {
+              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "このコマンドは管理者専用だよ🔐"); continue; }
+              await handleSetSlots(env, rest, replyToken);
+
+            } else if (cmd === "/slots"  || cmd === "slots") {
+              await handleSlots(env, rest, replyToken);
+
+            } else if (cmd === "/reserve"|| cmd === "reserve") {
+              await handleReserve(env, z, replyToken, userId, userName);
+
+            } else if (cmd === "/my"     || cmd === "my") {
+              await handleMy(env, rest, replyToken, userId);
+
+            } else if (cmd === "/cancel" || cmd === "cancel") {
+              await handleCancel(env, rest, replyToken, userId);
+
+            } else if (cmd === "/list"   || cmd === "list") {
+              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "このコマンドは管理者専用だよ🔐"); continue; }
+              await handleList(env, rest, replyToken);
+
+            } else if (cmd === "/copy-slots" || cmd === "copy-slots") {
+              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "このコマンドは管理者専用だよ🔐"); continue; }
+              await handleCopySlots(env, rest, replyToken);
+
+            } else if (cmd === "/report" || cmd === "report") {
+              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "このコマンドは管理者専用だよ🔐"); continue; }
+              await handleReport(env, rest, replyToken);
+
+            } else {
               await lineReply(env, replyToken, [
                 "使えるコマンド👇",
                 "/set-slots YYYY-MM-DD 10:00,11:00,16:30",
@@ -278,13 +385,12 @@ export default {
                 "/my [YYYY-MM-DD|YYYY-MM]",
                 "/cancel YYYY-MM-DD HH:MM",
                 "/list YYYY-MM-DD",
+                "/copy-slots YYYY-MM-DD YYYY-MM-DD",
+                "/report YYYY-MM",
               ].join("\n"));
             }
           } catch (e) {
-            await notifySlack(env, "WEBHOOK_CMD_FAIL", {
-              cmd,
-              err: (e as any)?.message || String(e),
-            });
+            await notifySlack(env, "WEBHOOK_CMD_FAIL", { cmd, err: (e as any)?.message || String(e) });
             await lineReply(env, replyToken, "内部エラーが起きたかも🙏 もう一度試してみてね。");
           }
         }
