@@ -1,8 +1,9 @@
 // src/index.ts
-// SaaS予約MVP + 競合防止(Durable Objects) + 入力正規化 + 管理コマンド + CSVエクスポート（超堅牢版）
+// SaaS予約MVP + 競合防止(Durable Objects) + 入力正規化 + 管理コマンド
+// + CSVエクスポート（超堅牢ストリーミング版）
 // Webhook: /api/line/webhook
-// CSV:     /api/export?ym=YYYY-MM
-// Health:  /__health     （ルート分岐の死活確認用）
+// CSV:     /api/export?ym=YYYY-MM[&raw=1]  ← raw=1 で JSON 原文カラムも出力
+// Health:  /__health
 
 export interface Env {
   LINE_BOOKING: KVNamespace;
@@ -13,7 +14,7 @@ export interface Env {
 
 const TZ = "Asia/Tokyo";
 const KV_PAGE_LIMIT = 1000;        // list 1ページ上限
-const CSV_ROW_LIMIT = 100_000;     // 念のための安全弁（超過時は切り捨て）
+const CSV_ROW_LIMIT = 100_000;     // 念のための安全弁
 
 // ===================== エラーヘルパ（1101対策のログ用） =====================
 function toPlainError(e: unknown) {
@@ -74,7 +75,7 @@ function isPastJst(date: string, time: string): boolean {
 function uniq(arr: string[]) { return [...new Set(arr)]; }
 function isYmd(s: string) { return /^\d{4}-\d{2}-\d{2}$/.test(s); }
 function isYm(s: string)  { return /^\d{4}-(0[1-9]|1[0-2])$/.test(s); }
-function fmtSlotsMessage(date: string, opens: string[], env: Env) {
+function fmtSlotsMessage(date: string, opens: string[]) {
   return [`📅 ${date} の空き状況`, `空き: ${opens.length ? opens.join(", ") : "なし"}`].join("\n");
 }
 function quickActions() {
@@ -164,7 +165,7 @@ async function handleSlots(env: Env, args: string[], replyToken: string) {
   const reserved = await env.LINE_BOOKING.list({ prefix: `R:${date} ` });
   const reservedTimes = new Set(reserved.keys.map(k => k.name.substring(`R:${date} `.length)));
   const opens = slots.filter(t => !reservedTimes.has(t));
-  return lineReply(env, replyToken, fmtSlotsMessage(date, opens, env));
+  return lineReply(env, replyToken, fmtSlotsMessage(date, opens));
 }
 
 async function handleReserve(env: Env, text: string, replyToken: string, userId: string, userName: string | undefined) {
@@ -282,95 +283,107 @@ async function handleExportMonth(env: Env, args: string[], replyToken: string, o
   return lineReply(env, replyToken, `📦 CSVを作ったよ！\n${url}\nブラウザで開いてダウンロードしてね。`);
 }
 
-// ============================ HTTP Export（非ストリーミング・堅牢） ============================
+// ============================ HTTP Export（ストリーミング・超堅牢） ============================
 async function handleHttpExport(req: Request, env: Env): Promise<Response> {
   const started = Date.now();
-  try {
-    const url = new URL(req.url);
-    const ym = (url.searchParams.get("ym") || "").trim();
-    if (!isYm(ym)) {
-      return new Response("bad request (use ?ym=YYYY-MM)", {
-        status: 400,
-        headers: { "content-type": "text/plain; charset=utf-8" },
-      });
-    }
+  const url = new URL(req.url);
+  const ym = (url.searchParams.get("ym") || "").trim();
+  const includeRaw = url.searchParams.get("raw") === "1"; // 重いときは付けない方が軽い
 
-    console.log("EXPORT_START", { ym });
-
-    const esc = (s: unknown) => {
-      let t = s == null ? "" : String(s);
-      return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
-    };
-
-    const rows: string[] = [];
-    rows.push("date,time,userId,userName,service,raw");
-
-    const prefix = `R:${ym}-`;
-    let cursor: string | undefined;
-    let count = 0;
-
-    for (;;) {
-      const opts: Record<string, unknown> = { prefix, limit: KV_PAGE_LIMIT };
-      if (cursor) opts.cursor = cursor;
-
-      let page: any;
-      try {
-        page = await env.LINE_BOOKING.list(opts as any);
-      } catch (e) {
-        console.error("KV_LIST_FAIL", toPlainError(e), { ym, cursorPresent: !!cursor });
-        return new Response("Internal Server Error", { status: 500 });
-      }
-
-      for (const { name } of page.keys) {
-        if (count >= CSV_ROW_LIMIT) break;
-
-        const m = /^R:(\d{4}-\d{2}-\d{2})\s(\d{2}:\d{2})$/.exec(name);
-        const date = m?.[1] ?? "";
-        const time = m?.[2] ?? "";
-
-        let raw = "";
-        try {
-          raw = (await env.LINE_BOOKING.get(name)) ?? "";
-        } catch (e) {
-          console.error("KV_GET_FAIL", toPlainError(e), { name });
-          raw = "";
-        }
-
-        let userId = "", userName = "", service = "";
-        if (raw) {
-          try {
-            const rec = JSON.parse(raw);
-            userId = String(rec.userId ?? "");
-            userName = String(rec.userName ?? "");
-            service = String(rec.service ?? "");
-          } catch { /* そのまま raw に残す */ }
-        }
-
-        rows.push(`${date},${time},${esc(userId)},${esc(userName)},${esc(service)},${esc(raw)}`);
-        count++;
-      }
-
-      if (count >= CSV_ROW_LIMIT || page.list_complete) break;
-      cursor = page.cursor;
-    }
-
-    const csv = rows.join("\n");
-    console.log("EXPORT_DONE", { ym, rows: count, ms: Date.now() - started });
-
-    return new Response(csv, {
-      headers: {
-        "content-type": "text/csv; charset=utf-8",
-        "content-disposition": `attachment; filename="booking-${ym}.csv"`,
-        "cache-control": "no-store",
-      },
-    });
-  } catch (e) {
-    console.error("EXPORT_TOP_FAIL", toPlainError(e));
-    return new Response("Internal Server Error", {
-      status: 500,
+  if (!isYm(ym)) {
+    return new Response("bad request (use ?ym=YYYY-MM)", {
+      status: 400,
       headers: { "content-type": "text/plain; charset=utf-8" },
     });
   }
+
+  console.log("EXPORT_START", { ym, includeRaw });
+
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const enc = new TextEncoder();
+
+  // CSVエスケープ
+  const esc = (s: unknown) => {
+    let t = s == null ? "" : String(s);
+    return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+
+  (async () => {
+    let count = 0;
+    try {
+      // Excel 互換の BOM + ヘッダ
+      await writer.write(enc.encode("\ufeff"));
+      await writer.write(
+        enc.encode(includeRaw
+          ? "date,time,userId,userName,service,raw\n"
+          : "date,time,userId,userName,service\n")
+      );
+
+      const prefix = `R:${ym}-`;
+      let cursor: string | undefined;
+
+      while (true) {
+        const opts: any = { prefix, limit: KV_PAGE_LIMIT };
+        if (cursor) opts.cursor = cursor;
+
+        let page: any;
+        try {
+          page = await env.LINE_BOOKING.list(opts);
+        } catch (e) {
+          console.error("KV_LIST_FAIL", toPlainError(e), { ym, cursorPresent: !!cursor });
+          break; // 途中まででも返す
+        }
+
+        for (const { name } of page.keys) {
+          if (count >= CSV_ROW_LIMIT) break;
+
+          const m = /^R:(\d{4}-\d{2}-\d{2})\s(\d{2}:\d{2})$/.exec(name);
+          const date = m?.[1] ?? "";
+          const time = m?.[2] ?? "";
+
+          let raw = "", userId = "", userName = "", service = "";
+          try {
+            raw = (await env.LINE_BOOKING.get(name)) ?? "";
+            if (raw) {
+              try {
+                const rec = JSON.parse(raw);
+                userId = String(rec.userId ?? "");
+                userName = String(rec.userName ?? "");
+                service = String(rec.service ?? "");
+              } catch { /* JSON壊れてても raw として吐く */ }
+            }
+          } catch (e) {
+            console.error("KV_GET_FAIL", toPlainError(e), { name });
+          }
+
+          const line = includeRaw
+            ? `${date},${time},${esc(userId)},${esc(userName)},${esc(service)},${esc(raw)}\n`
+            : `${date},${time},${esc(userId)},${esc(userName)},${esc(service)}\n`;
+
+          await writer.write(enc.encode(line));
+          count++;
+        }
+
+        if (count >= CSV_ROW_LIMIT || page.list_complete) break;
+        cursor = page.cursor;
+      }
+    } catch (e) {
+      console.error("EXPORT_STREAM_FAIL", toPlainError(e));
+      // エラーでもここで閉じる（ブラウザは途中までのCSVを受け取れる）
+    } finally {
+      try { await writer.close(); } catch {}
+      console.log("EXPORT_DONE", { ym, rows: count, ms: Date.now() - started });
+    }
+  })();
+
+  return new Response(readable, {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="booking-${ym}.csv"`,
+      "cache-control": "no-store",
+    },
+  });
 }
 
 // ============================ Router ============================
