@@ -11,5 +11,5 @@ name = "SLOT_LOCK"
 class_name = "SlotLock"
 
 [[migrations]]
-tag = "v2-slot-lock"                 # かぶったら v3 に上げてOK
+tag = "v3-slot-lock"   # かぶり回避のためアップ
 new_sqlite_classes = ["SlotLock"]
