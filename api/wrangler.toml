@@ -3,9 +3,9 @@ main = "src/index.ts"
 compatibility_date = "2024-09-01"
 minify = true
 
-# ★ 本番 KV をトップレベルに直接バインド（ID はご指定のもの）
+# Workers KV バインド（本番 / プレビュー）
 kv_namespaces = [
-  { binding = "LINE_BOOKING", id = "22103efd0bd04365a2ec050a24b3dbc4", preview_id = "22103efd0bd04365a2ec050a24b3dbc4" }
+  { binding = "LINE_BOOKING", id = "22103efd0bd04365a2ec050a24b3dbc4", preview_id = "03bbf9082957456cb4c18159d6788808" }
 ]
 
 [durable_objects]
@@ -13,7 +13,7 @@ bindings = [
   { name = "SLOT_LOCK", class_name = "SlotLock" }
 ]
 
-# 既存ワーカーが持っている DO のマイグレーションタグに合わせておく（警告消し）
+# 既存の DO マイグレーション警告を消すためのタグ
 [[migrations]]
 tag = "v3-slot-lock"
 new_classes = ["SlotLock"]
