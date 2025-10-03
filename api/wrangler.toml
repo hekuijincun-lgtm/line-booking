@@ -1,20 +1,33 @@
+# api/wrangler.toml
 name = "saas-api"
 main = "src/index.ts"
-compatibility_date = "2024-09-01"
-compatibility_flags = ["nodejs_compat"]
+compatibility_date = "2024-10-01"
 
-# KV: 実在する LINE_BOOKING の Namespace ID を指定
+# --- KV (本番/デフォルト) ---
 kv_namespaces = [
   { binding = "LINE_BOOKING", id = "22103efd0bd04365a2ec050a24b3dbc4" }
 ]
 
-# Durable Object (予約のロック用)
-[durable_objects]
-bindings = [
-  { name = "SLOT_LOCK", class_name = "SlotLock" }
+# --- Durable Objects ---
+[[durable_objects.bindings]]
+name = "SLOT_LOCK"
+class_name = "SlotLock"
+
+# 既存のスクリプトに合わせたマイグレーションタグ
+[[migrations]]
+tag = "v3-slot-lock"
+new_classes = ["SlotLock"]
+
+# --- staging 環境（GitHub Actions 等が -e staging を暗黙指定してもOKにするため）---
+[env.staging]
+kv_namespaces = [
+  { binding = "LINE_BOOKING", id = "22103efd0bd04365a2ec050a24b3dbc4" }
 ]
 
-# DO 初回作成のマイグレーションタグ（既に作成済みでもそのままでOK）
-migrations = [
-  { tag = "v3-slot-lock", new_classes = ["SlotLock"] }
-]
+[[env.staging.durable_objects.bindings]]
+name = "SLOT_LOCK"
+class_name = "SlotLock"
+
+[[env.staging.migrations]]
+tag = "v3-slot-lock"
+new_classes = ["SlotLock"]
