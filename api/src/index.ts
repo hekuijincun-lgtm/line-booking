@@ -1,69 +1,39 @@
+```ts
 // src/index.ts
-// SaaS予約MVP + 競合防止(Durable Objects) + 入力正規化 + 管理コマンド
-// + CSVエクスポート（超堅牢ストリーミング版）
+// SaaS予約MVP（CSVなし）
+// - 競合防止: Durable Objects (SlotLock)
+// - 入力正規化
+// - 管理コマンドは管理者のみ（ADMINS）
+// - LINE署名検証
+// - 簡易RateLimit
+//
 // Webhook: /api/line/webhook
-// CSV:     /api/export?ym=YYYY-MM[&raw=1]  ← raw=1 で JSON 原文カラムも出力
-// Health:  /__health
+// Health : /__health
+//
+// 必要な環境変数（Wrangler/Secrets）
+// - LINE_CHANNEL_ACCESS_TOKEN
+// - LINE_CHANNEL_SECRET
+// - ADMINS（カンマ区切りのLINE userId、例 "Uxxx,Uyyy"）
 
 export interface Env {
   LINE_BOOKING: KVNamespace;
   SLOT_LOCK: DurableObjectNamespace;
-  LINE_CHANNEL_ACCESS_TOKEN: string; // wrangler secret
-  BASE_URL?: string;                 // 例: https://saas-api.example.workers.dev
+  LINE_CHANNEL_ACCESS_TOKEN: string;
+  LINE_CHANNEL_SECRET: string;
+  BASE_URL?: string;
+  ADMINS?: string;
 }
 
 const TZ = "Asia/Tokyo";
-const KV_PAGE_LIMIT = 1000;        // list 1ページ上限
-const CSV_ROW_LIMIT = 100_000;     // 念のための安全弁
+const KV_PAGE_LIMIT = 1000;
 
-// ===================== エラーヘルパ（1101対策のログ用） =====================
+// ========================= 共通ヘルパ =========================
 function toPlainError(e: unknown) {
   if (e instanceof Error) return { name: e.name, message: e.message, stack: e.stack };
   try { return { note: "non-error throw", value: JSON.stringify(e) }; }
   catch { return { note: "non-error throw (unserializable)" }; }
 }
 
-// ========================= Durable Object: SlotLock =========================
-export class SlotLock {
-  state: DurableObjectState;
-  constructor(state: DurableObjectState) {
-    this.state = state;
-  }
-  async fetch(req: Request): Promise<Response> {
-    try {
-      const url = new URL(req.url);
-      if (url.pathname === "/acquire") {
-        const ttl = parseInt(url.searchParams.get("ttl") || "15", 10);
-        const locked = await this.state.storage.get("lock");
-        if (locked) return new Response("locked", { status: 423 });
-        await this.state.storage.put("lock", "1", { expirationTtl: ttl });
-        return new Response("ok");
-      }
-      if (url.pathname === "/release") {
-        await this.state.storage.delete("lock");
-        return new Response("ok");
-      }
-      return new Response("not found", { status: 404 });
-    } catch (e) {
-      console.error("DO_ERROR", toPlainError(e));
-      return new Response("do error", { status: 500 });
-    }
-  }
-}
-
-async function acquireSlotLock(env: Env, key: string, ttlSec = 15) {
-  const id = env.SLOT_LOCK.idFromName(key);
-  const stub = env.SLOT_LOCK.get(id);
-  const r = await stub.fetch(`https://lock/acquire?ttl=${ttlSec}`, { method: "POST" });
-  if (r.status === 423) throw new Error("LOCKED");
-}
-async function releaseSlotLock(env: Env, key: string) {
-  const id = env.SLOT_LOCK.idFromName(key);
-  const stub = env.SLOT_LOCK.get(id);
-  await stub.fetch(`https://lock/release`, { method: "POST" }).catch(() => {});
-}
-
-// =============================== Utils =====================================
 function jstNow(): Date {
   const s = new Date().toLocaleString("en-US", { timeZone: TZ });
   return new Date(s);
@@ -88,10 +58,50 @@ function quickActions() {
     ],
   };
 }
+function isAdmin(uid: string, env: Env) {
+  const list = (env.ADMINS || "").split(",").map(s => s.trim()).filter(Boolean);
+  return list.includes(uid);
+}
 
-// ======================= 入力正規化 & パース ===============================
+// ========================= Durable Object: SlotLock =========================
+export class SlotLock {
+  state: DurableObjectState;
+  constructor(state: DurableObjectState) { this.state = state; }
+  async fetch(req: Request): Promise<Response> {
+    try {
+      const url = new URL(req.url);
+      if (url.pathname === "/acquire") {
+        const ttl = parseInt(url.searchParams.get("ttl") || "15", 10);
+        const locked = await this.state.storage.get("lock");
+        if (locked) return new Response("locked", { status: 423 });
+        await this.state.storage.put("lock", "1", { expirationTtl: ttl });
+        return new Response("ok");
+      }
+      if (url.pathname === "/release") {
+        await this.state.storage.delete("lock");
+        return new Response("ok");
+      }
+      return new Response("not found", { status: 404 });
+    } catch (e) {
+      console.error("DO_ERROR", toPlainError(e));
+      return new Response("do error", { status: 500 });
+    }
+  }
+}
+async function acquireSlotLock(env: Env, key: string, ttlSec = 15) {
+  const id = env.SLOT_LOCK.idFromName(key);
+  const stub = env.SLOT_LOCK.get(id);
+  const r = await stub.fetch(`https://lock/acquire?ttl=${ttlSec}`, { method: "POST" });
+  if (r.status === 423) throw new Error("LOCKED");
+}
+async function releaseSlotLock(env: Env, key: string) {
+  const id = env.SLOT_LOCK.idFromName(key);
+  const stub = env.SLOT_LOCK.get(id);
+  await stub.fetch(`https://lock/release`, { method: "POST" }).catch(() => {});
+}
+
+// ======================= 入力正規化 & パース =======================
 type Parsed = { date: string; time: string; service: string };
-
 function normalizeAndParseReserve(text: string, defaultService = "カット"): Parsed | null {
   const z = text.normalize("NFKC").replace(/\s+/g, " ").trim();
   const m = z.match(/(?:^\/?reserve\s+)?(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2})[:：](\d{2})(?:\s+(.+))?$/i);
@@ -122,8 +132,8 @@ function normalizeDateArg(s: string): string | null {
 }
 
 // ========================== KV Keys ==========================
-const K_SLOTS = (date: string) => `S:${date}`;
-const K_RES   = (date: string, time: string) => `R:${date} ${time}`;
+const K_SLOTS = (date: string) => `S:${date}`;                 // JSON string[] times
+const K_RES   = (date: string, time: string) => `R:${date} ${time}`; // JSON { userId, userName, service, ts }
 const K_USER  = (uid: string, date: string, time: string) => `U:${uid}:${date} ${time}`;
 
 // ======================= LINE REST Helpers ===================
@@ -143,6 +153,35 @@ async function lineReply(env: Env, replyToken: string, text: string) {
   }
 }
 
+// ======================= 署名検証 & RateLimit =======================
+function toBase64(buf: ArrayBuffer): string {
+  let s = "";
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
+}
+async function verifyLineSignature(req: Request, env: Env, rawBody: string): Promise<boolean> {
+  const sig = req.headers.get("x-line-signature") || "";
+  if (!sig || !env.LINE_CHANNEL_SECRET) return false;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(env.LINE_CHANNEL_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody));
+  const expected = toBase64(mac);
+  return sig === expected;
+}
+async function rateLimit(env: Env, uid: string, limit = 10, windowSec = 60) {
+  const bucket = `RL:${uid}:${Math.floor(Date.now()/1000/windowSec)}`;
+  const v = parseInt((await env.LINE_BOOKING.get(bucket)) || "0", 10) + 1;
+  if (v === 1) await env.LINE_BOOKING.put(bucket, String(v), { expirationTtl: windowSec });
+  else await env.LINE_BOOKING.put(bucket, String(v));
+  return v <= limit;
+}
+
 // ============================ Handlers ============================
 async function handleSetSlots(env: Env, args: string[], replyToken: string) {
   if (args.length < 2) return lineReply(env, replyToken, "使い方：/set-slots YYYY-MM-DD 10:00,11:00,16:30");
@@ -150,6 +189,7 @@ async function handleSetSlots(env: Env, args: string[], replyToken: string) {
   if (!date) return lineReply(env, replyToken, "日付の形式が変だよ（例：2025-10-05）");
   const times = uniq(args[1].split(",").map(s => s.trim())).filter(Boolean);
   await env.LINE_BOOKING.put(K_SLOTS(date), JSON.stringify(times));
+  console.log("SET_SLOTS_OK", { date, times });
   return lineReply(env, replyToken, `✅ ${date} の枠を更新したよ。\n${times.join(", ")}`);
 }
 
@@ -181,6 +221,7 @@ async function handleReserve(env: Env, text: string, replyToken: string, userId:
   const slotKey = `${date} ${time}`;
   try {
     await acquireSlotLock(env, slotKey, 15);
+
     const exists = await env.LINE_BOOKING.get(K_RES(date, time));
     if (exists) return lineReply(env, replyToken, "ごめん！その枠はちょうど埋まっちゃった🙏 他の時間を試してね。");
 
@@ -188,9 +229,11 @@ async function handleReserve(env: Env, text: string, replyToken: string, userId:
     await env.LINE_BOOKING.put(K_RES(date, time), JSON.stringify(rec));
     await env.LINE_BOOKING.put(K_USER(userId, date, time), "1");
 
+    console.log("RESERVE_OK", { date, time, userId });
     return lineReply(env, replyToken, `✅ 予約を登録したよ。\n日時: ${date} ${time}\n内容: ${service}`);
   } catch (e: any) {
     if (e?.message === "LOCKED") {
+      console.warn("RESERVE_LOCKED", { date, time, userId });
       return lineReply(env, replyToken, "同時に予約が集中してるよ！ 少し待ってもう一度だけ試してね🙏");
     }
     throw e;
@@ -252,6 +295,7 @@ async function handleCancel(env: Env, args: string[], replyToken: string, userId
 
   await env.LINE_BOOKING.delete(K_RES(date, time));
   await env.LINE_BOOKING.delete(K_USER(userId, date, time));
+  console.log("CANCEL_OK", { date, time, userId });
   return lineReply(env, replyToken, `✅ 予約をキャンセルしたよ。\n日時: ${date} ${time}`);
 }
 
@@ -274,143 +318,41 @@ async function handleListAdmin(env: Env, args: string[], replyToken: string) {
     : "その日の予約はまだ無いよ🗓️");
 }
 
-async function handleExportMonth(env: Env, args: string[], replyToken: string, origin: string) {
-  if (args.length < 1) return lineReply(env, replyToken, "使い方：/export YYYY-MM");
-  const ym = args[0].normalize("NFKC");
-  if (!isYm(ym)) return lineReply(env, replyToken, "月の形式が変だよ（例：2025-10）");
-  const base = env.BASE_URL || origin;
-  const url = `${base.replace(/\/$/, "")}/api/export?ym=${encodeURIComponent(ym)}`;
-  return lineReply(env, replyToken, `📦 CSVを作ったよ！\n${url}\nブラウザで開いてダウンロードしてね。`);
-}
-
-// ============================ HTTP Export（ストリーミング・超堅牢） ============================
-async function handleHttpExport(req: Request, env: Env): Promise<Response> {
-  const started = Date.now();
-  const url = new URL(req.url);
-  const ym = (url.searchParams.get("ym") || "").trim();
-  const includeRaw = url.searchParams.get("raw") === "1"; // 重いときは付けない方が軽い
-
-  if (!isYm(ym)) {
-    return new Response("bad request (use ?ym=YYYY-MM)", {
-      status: 400,
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    });
-  }
-
-  console.log("EXPORT_START", { ym, includeRaw });
-
-  const { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
-  const enc = new TextEncoder();
-
-  // CSVエスケープ
-  const esc = (s: unknown) => {
-    let t = s == null ? "" : String(s);
-    return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
-  };
-
-  (async () => {
-    let count = 0;
-    try {
-      // Excel 互換の BOM + ヘッダ
-      await writer.write(enc.encode("\ufeff"));
-      await writer.write(
-        enc.encode(includeRaw
-          ? "date,time,userId,userName,service,raw\n"
-          : "date,time,userId,userName,service\n")
-      );
-
-      const prefix = `R:${ym}-`;
-      let cursor: string | undefined;
-
-      while (true) {
-        const opts: any = { prefix, limit: KV_PAGE_LIMIT };
-        if (cursor) opts.cursor = cursor;
-
-        let page: any;
-        try {
-          page = await env.LINE_BOOKING.list(opts);
-        } catch (e) {
-          console.error("KV_LIST_FAIL", toPlainError(e), { ym, cursorPresent: !!cursor });
-          break; // 途中まででも返す
-        }
-
-        for (const { name } of page.keys) {
-          if (count >= CSV_ROW_LIMIT) break;
-
-          const m = /^R:(\d{4}-\d{2}-\d{2})\s(\d{2}:\d{2})$/.exec(name);
-          const date = m?.[1] ?? "";
-          const time = m?.[2] ?? "";
-
-          let raw = "", userId = "", userName = "", service = "";
-          try {
-            raw = (await env.LINE_BOOKING.get(name)) ?? "";
-            if (raw) {
-              try {
-                const rec = JSON.parse(raw);
-                userId = String(rec.userId ?? "");
-                userName = String(rec.userName ?? "");
-                service = String(rec.service ?? "");
-              } catch { /* JSON壊れてても raw として吐く */ }
-            }
-          } catch (e) {
-            console.error("KV_GET_FAIL", toPlainError(e), { name });
-          }
-
-          const line = includeRaw
-            ? `${date},${time},${esc(userId)},${esc(userName)},${esc(service)},${esc(raw)}\n`
-            : `${date},${time},${esc(userId)},${esc(userName)},${esc(service)}\n`;
-
-          await writer.write(enc.encode(line));
-          count++;
-        }
-
-        if (count >= CSV_ROW_LIMIT || page.list_complete) break;
-        cursor = page.cursor;
-      }
-    } catch (e) {
-      console.error("EXPORT_STREAM_FAIL", toPlainError(e));
-      // エラーでもここで閉じる（ブラウザは途中までのCSVを受け取れる）
-    } finally {
-      try { await writer.close(); } catch {}
-      console.log("EXPORT_DONE", { ym, rows: count, ms: Date.now() - started });
-    }
-  })();
-
-  return new Response(readable, {
-    headers: {
-      "content-type": "text/csv; charset=utf-8",
-      "content-disposition": `attachment; filename="booking-${ym}.csv"`,
-      "cache-control": "no-store",
-    },
-  });
-}
-
 // ============================ Router ============================
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     try {
       const url = new URL(req.url);
 
-      // Health check（ルート分岐が生きているかの最小確認）
+      // Health
       if (url.pathname === "/__health") return new Response("ok", { headers: { "cache-control": "no-store" } });
 
-      // CSV
+      // CSV（無効化）
       if (url.pathname === "/api/export" && req.method === "GET") {
-        return await handleHttpExport(req, env);
+        return new Response("CSV export disabled", { status: 503 });
       }
 
       // LINE Webhook
       if (url.pathname === "/api/line/webhook" && req.method === "POST") {
-        const body = await req.json<any>().catch(() => ({ events: [] }));
+        const bodyText = await req.text();
+        if (!(await verifyLineSignature(req, env, bodyText))) {
+          console.warn("SIGNATURE_BAD");
+          return new Response("unauthorized", { status: 401 });
+        }
+        const body = JSON.parse(bodyText || "{}");
         const events = body.events || [];
         for (const ev of events) {
           const replyToken: string | undefined = ev.replyToken;
           const messageText: string | undefined = ev.message?.text;
           const userId: string | undefined = ev.source?.userId;
-          const userName: string | undefined = ev.source?.userId; // 実運用はプロフィールAPIへ
-
+          const userName: string | undefined = ev.source?.userId; // 必要ならプロフィールAPIへ
           if (!replyToken || !messageText || !userId) continue;
+
+          // 軽いレート制限
+          if (!(await rateLimit(env, userId))) {
+            await lineReply(env, replyToken, "🚧 リクエストが多すぎるみたい。少し待ってから試してね。");
+            continue;
+          }
 
           const z = messageText.normalize("NFKC").trim();
           const [cmdRaw, ...rest] = z.split(" ");
@@ -418,7 +360,8 @@ export default {
 
           try {
             if (cmd === "/set-slots" || cmd === "set-slots") {
-              await handleSetSlots(env, rest, replyToken);
+              if (!isAdmin(userId, env)) await lineReply(env, replyToken, "このコマンドは管理者専用だよ🔐");
+              else await handleSetSlots(env, rest, replyToken);
             } else if (cmd === "/slots" || cmd === "slots") {
               await handleSlots(env, rest, replyToken);
             } else if (cmd === "/reserve" || cmd === "reserve") {
@@ -428,10 +371,8 @@ export default {
             } else if (cmd === "/cancel" || cmd === "cancel") {
               await handleCancel(env, rest, replyToken, userId);
             } else if (cmd === "/list" || cmd === "list") {
-              await handleListAdmin(env, rest, replyToken);
-            } else if (cmd === "/export" || cmd === "export") {
-              const origin = `${url.protocol}//${url.host}`;
-              await handleExportMonth(env, rest, replyToken, origin);
+              if (!isAdmin(userId, env)) await lineReply(env, replyToken, "このコマンドは管理者専用だよ🔐");
+              else await handleListAdmin(env, rest, replyToken);
             } else {
               await lineReply(env, replyToken,
                 [
@@ -442,7 +383,6 @@ export default {
                   "/my [YYYY-MM-DD|YYYY-MM]",
                   "/cancel YYYY-MM-DD HH:MM",
                   "/list YYYY-MM-DD",
-                  "/export YYYY-MM",
                 ].join("\n")
               );
             }
@@ -469,3 +409,4 @@ export default {
     }
   },
 };
+```
