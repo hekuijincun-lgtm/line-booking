@@ -8,6 +8,7 @@ export interface Env {
   SLOT_LOCK: DurableObjectNamespace;
   LINE_CHANNEL_ACCESS_TOKEN: string; // wrangler secret
   BASE_URL?: string;
+  SLACK_WEBHOOK_URL?: string;       // ← 追加（任意）
 }
 
 const TZ = "Asia/Tokyo";
@@ -46,6 +47,20 @@ const lineReply = async (env: Env, replyToken: string, text: string) => {
 
 const fmtSlots = (date: string, opens: string[]) =>
   [`📅 ${date} の空き状況`, `空き: ${opens.length ? opens.join(", ") : "なし"}`].join("\n");
+
+// --- Slack 通知（任意; URL 未設定なら何もしない） ---
+async function notifySlack(env: Env, title: string, payload: any) {
+  const url = env.SLACK_WEBHOOK_URL || "";
+  if (!url) return;
+  const body = {
+    text: `*[${title}]*\n\`\`\`${JSON.stringify(payload, null, 2)}\`\`\``,
+  };
+  await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).catch(() => {});
+}
 
 // =============== 入力正規化 ===============
 type Parsed = { date: string; time: string; service: string };
@@ -146,6 +161,8 @@ async function handleReserve(env: Env, z: string, replyToken: string, userId: st
     return lineReply(env, replyToken, `✅ 予約を登録したよ。\n日時: ${date} ${time}\n内容: ${service}`);
   } catch (e: any) {
     if (e?.message === "LOCKED") return lineReply(env, replyToken, "同時に予約が集中してるよ！ 少し待ってもう一度だけ試してね🙏");
+    // 失敗をSlackへ
+    await notifySlack(env, "RESERVE_FAIL", { date, time, userId, err: e?.message || String(e) });
     throw e;
   } finally {
     await release(env, key);
@@ -226,67 +243,68 @@ async function handleList(env: Env, args: string[], replyToken: string) {
 // =============== Router ===============
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
-    const url = new URL(req.url);
+    try {
+      const url = new URL(req.url);
 
-    if (url.pathname === "/__health") return new Response("ok");
+      if (url.pathname === "/__health") return new Response("ok");
 
-    if (url.pathname === "/api/line/webhook" && req.method === "POST") {
-      const body = await req.json<any>().catch(() => ({ events: [] }));
-      const events = body.events || [];
-      for (const ev of events) {
-        const replyToken: string | undefined = ev.replyToken;
-        const messageText: string | undefined = ev.message?.text;
-        const userId: string | undefined = ev.source?.userId;
-        const userName: string | undefined = ev.source?.userId; // 必要ならプロフィールAPIへ
-        if (!replyToken || !messageText || !userId) continue;
+      if (url.pathname === "/api/line/webhook" && req.method === "POST") {
+        const body = await req.json<any>().catch(() => ({ events: [] }));
+        const events = body.events || [];
+        for (const ev of events) {
+          const replyToken: string | undefined = ev.replyToken;
+          const messageText: string | undefined = ev.message?.text;
+          const userId: string | undefined = ev.source?.userId;
+          const userName: string | undefined = ev.source?.userId; // 必要ならプロフィールAPIへ
+          if (!replyToken || !messageText || !userId) continue;
 
-        const z = messageText.normalize("NFKC").trim();
-        const [cmdRaw, ...rest] = z.split(" ");
-        const cmd = cmdRaw.toLowerCase();
+          const z = messageText.normalize("NFKC").trim();
+          const [cmdRaw, ...rest] = z.split(" ");
+          const cmd = cmdRaw.toLowerCase();
 
-        try {
-          if (cmd === "/set-slots" || cmd === "set-slots") await handleSetSlots(env, rest, replyToken);
-          else if (cmd === "/slots"  || cmd === "slots")    await handleSlots(env, rest, replyToken);
-          else if (cmd === "/reserve"|| cmd === "reserve")  await handleReserve(env, z, replyToken, userId, userName);
-          else if (cmd === "/my"     || cmd === "my")       await handleMy(env, rest, replyToken, userId);
-          else if (cmd === "/cancel" || cmd === "cancel")   await handleCancel(env, rest, replyToken, userId);
-          else if (cmd === "/list"   || cmd === "list")     await handleList(env, rest, replyToken);
-          else {
-            await lineReply(env, replyToken, [
-              "使えるコマンド👇",
-              "/set-slots YYYY-MM-DD 10:00,11:00,16:30",
-              "/slots YYYY-MM-DD",
-              "/reserve YYYY-MM-DD HH:MM [サービス]",
-              "/my [YYYY-MM-DD|YYYY-MM]",
-              "/cancel YYYY-MM-DD HH:MM",
-              "/list YYYY-MM-DD",
-            ].join("\n"));
+          try {
+            if (cmd === "/set-slots" || cmd === "set-slots") await handleSetSlots(env, rest, replyToken);
+            else if (cmd === "/slots"  || cmd === "slots")    await handleSlots(env, rest, replyToken);
+            else if (cmd === "/reserve"|| cmd === "reserve")  await handleReserve(env, z, replyToken, userId, userName);
+            else if (cmd === "/my"     || cmd === "my")       await handleMy(env, rest, replyToken, userId);
+            else if (cmd === "/cancel" || cmd === "cancel")   await handleCancel(env, rest, replyToken, userId);
+            else if (cmd === "/list"   || cmd === "list")     await handleList(env, rest, replyToken);
+            else {
+              await lineReply(env, replyToken, [
+                "使えるコマンド👇",
+                "/set-slots YYYY-MM-DD 10:00,11:00,16:30",
+                "/slots YYYY-MM-DD",
+                "/reserve YYYY-MM-DD HH:MM [サービス]",
+                "/my [YYYY-MM-DD|YYYY-MM]",
+                "/cancel YYYY-MM-DD HH:MM",
+                "/list YYYY-MM-DD",
+              ].join("\n"));
+            }
+          } catch (e) {
+            await notifySlack(env, "WEBHOOK_CMD_FAIL", {
+              cmd,
+              err: (e as any)?.message || String(e),
+            });
+            await lineReply(env, replyToken, "内部エラーが起きたかも🙏 もう一度試してみてね。");
           }
-        } catch {
-          await lineReply(env, replyToken, "内部エラーが起きたかも🙏 もう一度試してみてね。");
         }
+        return new Response("OK");
       }
-      return new Response("OK");
-    }
 
-    if (url.pathname === "/" && req.method === "GET") {
-      return new Response("OK / SaaS Booking Worker");
-    }
+      if (url.pathname === "/" && req.method === "GET") {
+        return new Response("OK / SaaS Booking Worker");
+      }
 
-    return new Response("Not Found", { status: 404 });
+      return new Response("Not Found", { status: 404 });
+    } catch (e) {
+      await notifySlack(env, "UNCAUGHT_FETCH_ERROR", {
+        url: (req as any)?.url,
+        err: (e as any)?.message || String(e),
+      });
+      return new Response("Internal Server Error", {
+        status: 500,
+        headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+      });
+    }
   },
 };
-
-
-
-// --- Slack 通知（任意; URL 未設定なら何もしない） ---
-async function notifySlack(env: Env, title: string, payload: any) {
-  // @ts-ignore
-  const url = (env as any).SLACK_WEBHOOK_URL || "";
-  if (!url) return;
-  const body = {
-    text: `*[${title}]*\n\`\`\`${JSON.stringify(payload, null, 2)}\`\`\``
-  };
-  await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-    .catch(() => {});
-}
