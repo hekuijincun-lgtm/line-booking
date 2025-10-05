@@ -1,9 +1,10 @@
-// src/index.ts
+// src/index.ts (copy-paste ready)
 // SaaS予約（CSVなし） + 署名検証 + 管理者限定 + RateLimit + /copy-slots + /report
-// 追加パッチ: 
-//  - /set-slots が「スペース/カンマ/全角」区切りの両対応に
-//  - /list が「YYYY-MM」(月指定) に対応
-//  - RateLimit の TTL が窓の終端まで固定化（連投で永続化しない）
+// パッチ同梱：
+//  - /set-slots の時刻が「スペース/カンマ/全角」区切りすべてOK
+//  - /list が「YYYY-MM（例: 2025-10）」の月指定にも対応
+//  - RateLimit を“時間窓の終端まで”のTTL固定に調整
+//  - /__health でビルド機能フラグをJSON返却（デバッグ用）
 // Webhook: /api/line/webhook
 // Health:  /__health
 
@@ -68,9 +69,9 @@ async function rateLimit(env: Env, uid: string, limit = 10, windowSec = 60) {
 const quickActions = () => ({
   items: [
     { type: "action", action: { type: "message", label: "空き枠を見る", text: "/slots 今日" } },
-    { type: "action", action: { type: "message", label: "予約する",   text: "/reserve 2025-10-05 16:30 カット" } },
+    { type: "action", action: { type: "message", label: "予約する",   text: "/reserve 2025-10-12 10:30 カット" } },
     { type: "action", action: { type: "message", label: "自分の予約", text: "/my" } },
-    { type: "action", action: { type: "message", label: "予約取消",   text: "/cancel 2025-10-05 16:30" } },
+    { type: "action", action: { type: "message", label: "予約取消",   text: "/cancel 2025-10-12 10:30" } },
   ],
 });
 
@@ -98,7 +99,7 @@ async function notifySlack(env: Env, title: string, payload: any) {
 }
 
 // =============== 入力正規化 ===============
-// 時刻の柔軟パーサ（スペース/カンマ/全角区切り、10 または 10:30 などを許容）
+// 時刻の柔軟パーサ（スペース/カンマ/全角区切り、10 や 10:30 も許容）
 function parseTimesFlexible(tokens: string[]): string[] {
   const joined = tokens.join(" ")
     .replace(/[、，]/g, ",")   // 全角カンマ→半角
@@ -200,7 +201,7 @@ async function handleSlots(env: Env, args: string[], replyToken: string) {
 
 async function handleReserve(env: Env, z: string, replyToken: string, userId: string, userName?: string) {
   const p = parseReserve(z, "カット");
-  if (!p) return lineReply(env, replyToken, "例）/reserve 2025-10-05 16:30 カット");
+  if (!p) return lineReply(env, replyToken, "例）/reserve 2025-10-12 16:30 カット");
   const { date, time, service } = p;
   if (isPast(date, time)) return lineReply(env, replyToken, "過去の時間は予約できないよ🙏");
 
@@ -373,7 +374,13 @@ export default {
     try {
       const url = new URL(req.url);
 
-      if (url.pathname === "/__health") return new Response("ok");
+      // Health JSON（ビルドの機能フラグ可視化）
+      const FEATURES = { monthList: true, flexibleSlots: true } as const;
+      if (url.pathname === "/__health") {
+        return new Response(JSON.stringify({ ok: true, ts: Date.now(), env: env.BASE_URL || "default", features: FEATURES }), {
+          headers: { "content-type": "application/json" }
+        });
+      }
 
       if (url.pathname === "/api/line/webhook" && req.method === "POST") {
         // ---- 署名検証（生ボディで） ----
@@ -399,7 +406,7 @@ export default {
           }
 
           const z = messageText.normalize("NFKC").trim();
-          const [cmdRaw, ...rest] = z.split(" ");
+          const [cmdRaw, ...rest] = z.split(/\s+/); // 全角/複スペース対応
           const cmd = (cmdRaw || "").toLowerCase();
 
           try {
