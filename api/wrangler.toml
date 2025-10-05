@@ -1,40 +1,20 @@
-# api/wrangler.toml
-name = "saas-api"
-main = "src/index.ts"
-compatibility_date = "2024-10-01"
-workers_dev = true
-minify = true
-legacy_env = false
-
-# ----- default 環境（本番相当） -----
-[[kv_namespaces]]
-binding    = "LINE_BOOKING"
-id         = "22103efd0bd04365a2ec050a24b3dbc4"   # LINE_BOOKING
-preview_id = "03bbf9082957456cb4c18159d6788808"   # LINE_BOOKING_preview
-
-[[durable_objects.bindings]]
-name = "SLOT_LOCK"
-class_name = "SlotLock"
-
-[[migrations]]
-tag = "v3-slot-lock"
-new_classes = ["SlotLock"]
-
-[vars]
-BASE_URL = "https://saas-api.hekujiincun.workers.dev"
-
-# ----- ここがポイント：staging 環境も明示してダミー参照を消す -----
+# ここから追加（or 置き換え）
 [env.staging]
-# 同じバインドをそのまま指定（別IDにしたい場合は差し替え）
+# 既にあればこのセクションは重複させずに使い回しでOK
 
 [[env.staging.kv_namespaces]]
-binding    = "LINE_BOOKING"
-id         = "22103efd0bd04365a2ec050a24b3dbc4"
+binding   = "LINE_BOOKING"
+id        = "22103efd0bd04365a2ec050a24b3dbc4"
 preview_id = "03bbf9082957456cb4c18159d6788808"
 
 [[env.staging.durable_objects.bindings]]
-name = "SLOT_LOCK"
+name       = "SLOT_LOCK"
 class_name = "SlotLock"
 
+# ★ staging 用の SQLite DO 作成 migration（無料プラン向け）
+[[env.staging.migrations]]
+tag = "v1-slot-lock-sqlite"
+new_sqlite_classes = ["SlotLock"]
+
 [env.staging.vars]
-BASE_URL = "https://saas-api.hekujiincun.workers.dev"
+BASE_URL = "https://saas-api.hekuijincun.workers.dev"
