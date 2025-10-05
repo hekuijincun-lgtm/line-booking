@@ -7,27 +7,27 @@ minify = true
 
 # --- KV（本番とプレビュー） ---
 [[kv_namespaces]]
-binding   = "LINE_BOOKING"
-id        = "22103efd0bd04365a2ec050a24b3dbc4"   # LINE_BOOKING
-preview_id= "03bbf9082957456cb4c18159d6788808"   # LINE_BOOKING_preview
+binding    = "LINE_BOOKING"
+id         = "22103efd0bd04365a2ec050a24b3dbc4"   # LINE_BOOKING
+preview_id = "03bbf9082957456cb4c18159d6788808"   # LINE_BOOKING_preview
 
 # --- Durable Object ---
 [[durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# Free プランは new_sqlite_classes を使う
+# Freeプランは new_sqlite_classes を使う
 [[migrations]]
 tag = "0001"
 new_sqlite_classes = ["SlotLock"]
 
-# 任意の定数
+# 任意の定数（共通）
 [vars]
 BASE_URL = "https://saas-api.hekuijincun.workers.dev"
 
 # ===== staging 環境（--env staging） =====
 [env.staging]
-# 念のため main も明記（継承されるが明示しておくと安全）
+# 念のため main も明記
 main = "src/index.ts"
 
 [[env.staging.kv_namespaces]]
@@ -46,3 +46,5 @@ new_sqlite_classes = ["SlotLock"]
 
 [env.staging.vars]
 BASE_URL = "https://saas-api.hekuijincun.workers.dev"
+# ← 管理者コマンド（/set-slots, /list, /copy-slots, /report）が通るように必須
+ADMINS   = "U929e7fcc7a5ed0c4cbcd0c4c9b001815"
