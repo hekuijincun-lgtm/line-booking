@@ -404,7 +404,7 @@ if (url.pathname === "/__health") {
           }
 
           const z = messageText.normalize("NFKC").trim();
-          const [cmdRaw, ...rest] = z.split(/\\s+/); // 全角/複数スペースにも強い
+          const [cmdRaw, ...rest] = z.split(/\s+/); // 全角/複数スペースにも強い
           const cmd = (cmdRaw || "").toLowerCase();
 
           try {
