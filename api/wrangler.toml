@@ -4,23 +4,24 @@ main = "src/index.ts"
 compatibility_date = "2024-10-01"
 workers_dev = true
 minify = true
+legacy_env = false  # ← 念のため。env継承を明示OFF
 
 # --- KV（本番・プレビュー） ---
 [[kv_namespaces]]
-binding = "LINE_BOOKING"
-id = "22103efd0bd04365a2ec050a24b3dbc4"          # ← KV: LINE_BOOKING
-preview_id = "03bbf9082957456cb4c18159d6788808"   # ← KV: LINE_BOOKING_preview
+binding   = "LINE_BOOKING"
+id        = "22103efd0bd04365a2ec050a24b3dbc4"      # ← Workers KV: LINE_BOOKING
+preview_id= "03bbf9082957456cb4c18159d6788808"      # ← Workers KV: LINE_BOOKING_preview
 
 # --- Durable Object ---
 [[durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# 既存ワーカー用のマイグレーションタグ
+# 既存スクリプトに合わせたマイグレーションタグ（そのまま）
 [[migrations]]
 tag = "v3-slot-lock"
 new_classes = ["SlotLock"]
 
-# 任意（必要なら）
+# 任意の定数（必要なら）
 [vars]
 BASE_URL = "https://saas-api.hekujiincun.workers.dev"
