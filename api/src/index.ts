@@ -1,5 +1,9 @@
 // src/index.ts
 // SaaS予約（CSVなし） + 署名検証 + 管理者限定 + RateLimit + /copy-slots + /report
+// 追加パッチ: 
+//  - /set-slots が「スペース/カンマ/全角」区切りの両対応に
+//  - /list が「YYYY-MM」(月指定) に対応
+//  - RateLimit の TTL が窓の終端まで固定化（連投で永続化しない）
 // Webhook: /api/line/webhook
 // Health:  /__health
 
@@ -50,13 +54,15 @@ async function verifyLineSignature(req: Request, env: Env, raw: string): Promise
   return sig === toBase64(mac);
 }
 
-// RateLimit（uidごと 秒窓）
+// RateLimit（uidごと 秒窓）: 窓の終端まで TTL を維持
 async function rateLimit(env: Env, uid: string, limit = 10, windowSec = 60) {
-  const bucket = `RL:${uid}:${Math.floor(Date.now() / 1000 / windowSec)}`;
-  const v = parseInt((await env.LINE_BOOKING.get(bucket)) || "0", 10) + 1;
-  if (v === 1) await env.LINE_BOOKING.put(bucket, String(v), { expirationTtl: windowSec });
-  else await env.LINE_BOOKING.put(bucket, String(v));
-  return v <= limit;
+  const now = Math.floor(Date.now() / 1000);
+  const windowStart = Math.floor(now / windowSec) * windowSec;
+  const ttl = windowStart + windowSec - now; // その窓の残り秒数
+  const bucket = `RL:${uid}:${Math.floor(now / windowSec)}`;
+  const current = parseInt((await env.LINE_BOOKING.get(bucket)) || "0", 10) + 1;
+  await env.LINE_BOOKING.put(bucket, String(current), { expirationTtl: Math.max(ttl, 1) });
+  return current <= limit;
 }
 
 const quickActions = () => ({
@@ -92,6 +98,22 @@ async function notifySlack(env: Env, title: string, payload: any) {
 }
 
 // =============== 入力正規化 ===============
+// 時刻の柔軟パーサ（スペース/カンマ/全角区切り、10 または 10:30 などを許容）
+function parseTimesFlexible(tokens: string[]): string[] {
+  const joined = tokens.join(" ")
+    .replace(/[、，]/g, ",")   // 全角カンマ→半角
+    .replace(/\s+/g, " ");     // スペース正規化（全角含む）
+  const parts = joined.split(/[ ,]+/).map(s => s.trim()).filter(Boolean);
+  const norm = (t: string) => {
+    const m = t.match(/^(\d{1,2})(?::|：)?(\d{2})?$/);
+    if (!m) return null;
+    const h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+    const mi = m[2] ? Math.min(59, Math.max(0, parseInt(m[2], 10))) : 0;
+    return `${String(h).padStart(2, "0")}:${String(mi).padStart(2, "0")}`;
+  };
+  return Array.from(new Set(parts.map(norm).filter(Boolean) as string[])).sort();
+}
+
 type Parsed = { date: string; time: string; service: string };
 
 function normalizeDateArg(s: string): string | null {
@@ -103,6 +125,13 @@ function normalizeDateArg(s: string): string | null {
   const m = z.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
   if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
   return isYmd(z) ? z : null;
+}
+
+function normalizeMonthArg(s: string): string | null {
+  const z = s.normalize("NFKC").trim().replace(/[／．.]/g, "-");
+  const m = z.match(/^(\d{4})-(\d{1,2})$/);
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}`;
+  return isYm(z) ? z : null;
 }
 
 function parseReserve(text: string, defaultService = "カット"): Parsed | null {
@@ -148,7 +177,8 @@ async function handleSetSlots(env: Env, args: string[], replyToken: string) {
   if (args.length < 2) return lineReply(env, replyToken, "使い方：/set-slots YYYY-MM-DD 10:00,11:00,16:30");
   const date = normalizeDateArg(args[0]);
   if (!date) return lineReply(env, replyToken, "日付の形式が変だよ（例：2025-10-05）");
-  const times = uniq(args[1].split(",").map(s => s.trim())).filter(Boolean);
+  const times = parseTimesFlexible(args.slice(1));
+  if (!times.length) return lineReply(env, replyToken, "時刻の指定が見つからないよ（例：10:00 10:30 11:00）");
   await env.LINE_BOOKING.put(K_SLOTS(date), JSON.stringify(times));
   return lineReply(env, replyToken, `✅ ${date} の枠を更新したよ。\n${times.join(", ")}`);
 }
@@ -248,10 +278,33 @@ async function handleCancel(env: Env, args: string[], replyToken: string, userId
   return lineReply(env, replyToken, `✅ 予約をキャンセルしたよ。\n日時: ${date} ${time}`);
 }
 
+// 月別一覧
+async function listByMonth(env: Env, ym: string, replyToken: string) {
+  const prefix = `R:${ym}-`;
+  const it = await env.LINE_BOOKING.list({ prefix, limit: 2000 });
+  const days: Record<string, string[]> = {};
+  for (const k of it.keys) {
+    const m = /^R:(\d{4}-\d{2}-\d{2})\s(.+)$/.exec(k.name);
+    if (!m) continue;
+    const d = m[1], t = m[2];
+    (days[d] ||= []).push(t);
+  }
+  const lines = Object.entries(days)
+    .sort(([a],[b]) => a.localeCompare(b))
+    .map(([d, ts]) => `📅 ${d}\n　予約: ${ts.sort().join(", ") || "なし"}`);
+  if (!lines.length) return lineReply(env, replyToken, `📆 ${ym} の予約はまだないよ`);
+  return lineReply(env, replyToken, `🗓️ ${ym} の予約一覧\n\n${lines.join("\n")}`);
+}
+
 async function handleList(env: Env, args: string[], replyToken: string) {
-  if (args.length < 1) return lineReply(env, replyToken, "使い方：/list YYYY-MM-DD");
-  const date = normalizeDateArg(args[0]);
-  if (!date) return lineReply(env, replyToken, "日付の形式が変だよ（例：2025-10-05）");
+  if (args.length < 1) return lineReply(env, replyToken, "使い方：/list YYYY-MM-DD | YYYY-MM");
+  const arg = args[0];
+  const month = normalizeMonthArg(arg);
+  if (month) {
+    return listByMonth(env, month, replyToken);
+  }
+  const date = normalizeDateArg(arg);
+  if (!date) return lineReply(env, replyToken, "日付の形式が変だよ（例：2025-10-05 または 2025-10）");
 
   const prefix = `R:${date} `;
   const it = await env.LINE_BOOKING.list({ prefix, limit: 1000 });
@@ -276,16 +329,18 @@ async function handleCopySlots(env: Env, args: string[], replyToken: string) {
   if (!src || !dst) return lineReply(env, replyToken, "日付の形式が変だよ（例：2025-10-05）");
   const s = await env.LINE_BOOKING.get(K_SLOTS(src));
   const slots: string[] = s ? JSON.parse(s) : [];
-  await env.LINE_BOOKING.put(K_SLOTS(dst), JSON.stringify(slots));
-  return lineReply(env, replyToken, `✅ 枠をコピーしたよ。\n${src} → ${dst}\n${slots.join(", ")}`);
+  const normalized = Array.from(new Set(slots)).sort();
+  await env.LINE_BOOKING.put(K_SLOTS(dst), JSON.stringify(normalized));
+  return lineReply(env, replyToken, `✅ 枠をコピーしたよ。\n${src} → ${dst}\n${normalized.join(", ")}`);
 }
 
 // 追加：月次サマリ
 async function handleReport(env: Env, args: string[], replyToken: string) {
   // /report 2025-10
   if (args.length < 1) return lineReply(env, replyToken, "使い方：/report YYYY-MM");
-  const ym = args[0].normalize("NFKC");
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) return lineReply(env, replyToken, "月の形式が変だよ（例：2025-10）");
+  const ymRaw = args[0].normalize("NFKC");
+  const ym = normalizeMonthArg(ymRaw);
+  if (!ym) return lineReply(env, replyToken, "月の形式が変だよ（例：2025-10）");
 
   const prefix = `R:${ym}-`;
   const it = await env.LINE_BOOKING.list({ prefix, limit: 2000 });
@@ -384,7 +439,7 @@ export default {
                 "/reserve YYYY-MM-DD HH:MM [サービス]",
                 "/my [YYYY-MM-DD|YYYY-MM]",
                 "/cancel YYYY-MM-DD HH:MM",
-                "/list YYYY-MM-DD",
+                "/list YYYY-MM-DD | YYYY-MM",
                 "/copy-slots YYYY-MM-DD YYYY-MM-DD",
                 "/report YYYY-MM",
               ].join("\n"));
