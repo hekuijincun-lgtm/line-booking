@@ -1,11 +1,9 @@
-// src/index.ts (copy-paste ready)
+// src/index.ts
 // SaaS予約（CSVなし） + 署名検証 + 管理者限定 + RateLimit + /copy-slots + /report
-// 拡張：
-//  - /set-slots の時刻が「スペース/カンマ/全角」区切りすべてOK
-//  - /list が「YYYY-MM（例: 2025-10）」の月指定にも対応
-//  - RateLimit を“時間窓の終端まで”のTTL固定に調整
-//  - /__health で機能フラグをJSON返却（混線デバッグ用）
-//  - ✨ 管理者“自己登録”フロー（/admin me）で wrangler.toml を編集せず運用開始
+// 追加パッチ: 
+//  - /set-slots が「スペース/カンマ/全角」区切りの両対応に
+//  - /list が「YYYY-MM」(月指定) に対応
+//  - RateLimit の TTL が窓の終端まで固定化（連投で永続化しない）
 // Webhook: /api/line/webhook
 // Health:  /__health
 
@@ -14,7 +12,7 @@ export interface Env {
   SLOT_LOCK: DurableObjectNamespace;
   LINE_CHANNEL_ACCESS_TOKEN: string; // wrangler secret
   LINE_CHANNEL_SECRET: string;       // ← 署名検証で使用（必須）
-  ADMINS?: string;                   // ← "Uxxxx, Uyyyy" カンマ区切り（なくてもOK）
+  ADMINS?: string;                   // ← "Uxxxx, Uyyyy" カンマ区切り
   BASE_URL?: string;
   SLACK_WEBHOOK_URL?: string;       // 任意
 }
@@ -32,21 +30,11 @@ const isYm  = (s: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
 const K_SLOTS = (date: string) => `S:${date}`;
 const K_RES   = (date: string, time: string) => `R:${date} ${time}`;
 const K_USER  = (uid: string, date: string, time: string) => `U:${uid}:${date} ${time}`;
-const K_ADMINS = `ADMINS_V1`;
 
-// 管理者集合（ENV + 動的KV）
-async function getAdminSet(env: Env): Promise<Set<string>> {
-  const staticList = (env.ADMINS || "").split(",").map(s => s.trim()).filter(Boolean);
-  const dyn = (await env.LINE_BOOKING.get(K_ADMINS)) || "";
-  const dynList: string[] = dyn ? JSON.parse(dyn) : [];
-  return new Set([...staticList, ...dynList]);
-}
-async function saveAdminSet(env: Env, s: Set<string>) {
-  await env.LINE_BOOKING.put(K_ADMINS, JSON.stringify([...s]));
-}
-async function isAdmin(uid: string, env: Env) {
-  const set = await getAdminSet(env);
-  return set.has(uid);
+// 管理者判定
+function isAdmin(uid: string, env: Env) {
+  const list = (env.ADMINS || "").split(",").map(s => s.trim()).filter(Boolean);
+  return list.includes(uid);
 }
 
 // LINE署名検証
@@ -80,8 +68,9 @@ async function rateLimit(env: Env, uid: string, limit = 10, windowSec = 60) {
 const quickActions = () => ({
   items: [
     { type: "action", action: { type: "message", label: "空き枠を見る", text: "/slots 今日" } },
-    { type: "action", action: { type: "message", label: "予約する",   text: "/reserve 2025-10-12 10:30 カット" } },
+    { type: "action", action: { type: "message", label: "予約する",   text: "/reserve 2025-10-05 16:30 カット" } },
     { type: "action", action: { type: "message", label: "自分の予約", text: "/my" } },
+    { type: "action", action: { type: "message", label: "予約取消",   text: "/cancel 2025-10-05 16:30" } },
     { type: "action", action: { type: "message", label: "自分のID",   text: "/whoami" } },
   ],
 });
@@ -110,7 +99,7 @@ async function notifySlack(env: Env, title: string, payload: any) {
 }
 
 // =============== 入力正規化 ===============
-// 時刻の柔軟パーサ（スペース/カンマ/全角区切り、10 や 10:30 も許容）
+// 時刻の柔軟パーサ（スペース/カンマ/全角区切り、10 または 10:30 などを許容）
 function parseTimesFlexible(tokens: string[]): string[] {
   const joined = tokens.join(" ")
     .replace(/[、，]/g, ",")   // 全角カンマ→半角
@@ -212,7 +201,7 @@ async function handleSlots(env: Env, args: string[], replyToken: string) {
 
 async function handleReserve(env: Env, z: string, replyToken: string, userId: string, userName?: string) {
   const p = parseReserve(z, "カット");
-  if (!p) return lineReply(env, replyToken, "例）/reserve 2025-10-12 16:30 カット");
+  if (!p) return lineReply(env, replyToken, "例）/reserve 2025-10-05 16:30 カット");
   const { date, time, service } = p;
   if (isPast(date, time)) return lineReply(env, replyToken, "過去の時間は予約できないよ🙏");
 
@@ -379,56 +368,18 @@ async function handleReport(env: Env, args: string[], replyToken: string) {
   return lineReply(env, replyToken, [`【${ym} レポート】合計 ${total}件`, "— 日別 —", days, "— サービス別 —", svc].join("\n"));
 }
 
-// 追加：管理者自己登録 & 管理コマンド
-async function handleAdmin(env: Env, args: string[], replyToken: string, userId: string) {
-  const sub = (args[0] || "").toLowerCase();
-  const admins = await getAdminSet(env);
-
-  if (sub === "me") {
-    // 初期化（まだ誰も管理者でない）or すでに管理者の本人のみ許可
-    if (admins.size === 0 || admins.has(userId)) {
-      admins.add(userId);
-      await saveAdminSet(env, admins);
-      return lineReply(env, replyToken, `✅ あなた(${userId})を管理者に登録したよ`);
-    }
-    return lineReply(env, replyToken, "この操作は管理者専用だよ🔐");
-  }
-
-  if (!(await isAdmin(userId, env))) {
-    return lineReply(env, replyToken, "このコマンドは管理者専用だよ🔐");
-  }
-
-  if (sub === "list") {
-    return lineReply(env, replyToken, `【ADMINS】\n${[...admins].join("\n") || "（なし）"}`);
-  }
-  if (sub === "add" && args[1]) {
-    const id = args[1].trim();
-    admins.add(id);
-    await saveAdminSet(env, admins);
-    return lineReply(env, replyToken, `✅ 追加したよ: ${id}`);
-  }
-  if (sub === "remove" && args[1]) {
-    const id = args[1].trim();
-    admins.delete(id);
-    await saveAdminSet(env, admins);
-    return lineReply(env, replyToken, `✅ 削除したよ: ${id}`);
-  }
-  return lineReply(env, replyToken, "使い方：/admin me | /admin list | /admin add Uxxxx | /admin remove Uxxxx");
-}
-
 // =============== Router ===============
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     try {
       const url = new URL(req.url);
 
-      // Health JSON（ビルドの機能フラグ可視化）
-      const FEATURES = { monthList: true, flexibleSlots: true, adminBootstrap: true } as const;
-      if (url.pathname === "/__health") {
-        return new Response(JSON.stringify({ ok: true, ts: Date.now(), env: env.BASE_URL || "default", features: FEATURES }), {
-          headers: { "content-type": "application/json" }
-        });
-      }
+      const FEATURES = { monthList: true, flexibleSlots: true } as const;
+if (url.pathname === "/__health") {
+  return new Response(JSON.stringify({ ok: true, ts: Date.now(), env: env.BASE_URL || "default", features: FEATURES }), {
+    headers: { "content-type": "application/json" }
+  });
+}
 
       if (url.pathname === "/api/line/webhook" && req.method === "POST") {
         // ---- 署名検証（生ボディで） ----
@@ -454,12 +405,12 @@ export default {
           }
 
           const z = messageText.normalize("NFKC").trim();
-          const [cmdRaw, ...rest] = z.split(/\s+/); // 全角/複スペース対応
+          const [cmdRaw, ...rest] = z.split(/\s+/); // 全角/複数スペースにも強い
           const cmd = (cmdRaw || "").toLowerCase();
 
           try {
             if (cmd === "/set-slots" || cmd === "set-slots") {
-              if (!(await isAdmin(userId, env))) { await lineReply(env, replyToken, "このコマンドは管理者専用だよ🔐"); continue; }
+              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "このコマンドは管理者専用だよ🔐"); continue; }
               await handleSetSlots(env, rest, replyToken);
 
             } else if (cmd === "/slots"  || cmd === "slots") {
@@ -475,22 +426,19 @@ export default {
               await handleCancel(env, rest, replyToken, userId);
 
             } else if (cmd === "/list"   || cmd === "list") {
-              if (!(await isAdmin(userId, env))) { await lineReply(env, replyToken, "このコマンドは管理者専用だよ🔐"); continue; }
+              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "このコマンドは管理者専用だよ🔐"); continue; }
               await handleList(env, rest, replyToken);
 
             } else if (cmd === "/copy-slots" || cmd === "copy-slots") {
-              if (!(await isAdmin(userId, env))) { await lineReply(env, replyToken, "このコマンドは管理者専用だよ🔐"); continue; }
+              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "このコマンドは管理者専用だよ🔐"); continue; }
               await handleCopySlots(env, rest, replyToken);
 
             } else if (cmd === "/report" || cmd === "report") {
-              if (!(await isAdmin(userId, env))) { await lineReply(env, replyToken, "このコマンドは管理者専用だよ🔐"); continue; }
+              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "このコマンドは管理者専用だよ🔐"); continue; }
               await handleReport(env, rest, replyToken);
 
             } else if (cmd === "/whoami" || cmd === "whoami") {
               await lineReply(env, replyToken, `あなたのLINEユーザーID: ${userId}`);
-
-            } else if (cmd === "/admin" || cmd === "admin") {
-              await handleAdmin(env, rest, replyToken, userId);
 
             } else {
               await lineReply(env, replyToken, [
@@ -504,7 +452,6 @@ export default {
                 "/copy-slots YYYY-MM-DD YYYY-MM-DD",
                 "/report YYYY-MM",
                 "/whoami",
-                "/admin me | /admin list | /admin add Uxxxx | /admin remove Uxxxx",
               ].join("\n"));
             }
           } catch (e) {
