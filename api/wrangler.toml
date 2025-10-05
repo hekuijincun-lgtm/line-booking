@@ -8,19 +8,19 @@ minify = true
 # --- KV（本番・プレビュー） ---
 [[kv_namespaces]]
 binding = "LINE_BOOKING"
-id = "22103efd0bd04365a2ec050a24b3dbc4"      # ← KV: LINE_BOOKING
-preview_id = "03bbf9082957456cb4c18159d6788808" # ← KV: LINE_BOOKING_preview
+id = "22103efd0bd04365a2ec050a24b3dbc4"          # ← KV: LINE_BOOKING
+preview_id = "03bbf9082957456cb4c18159d6788808"   # ← KV: LINE_BOOKING_preview
 
 # --- Durable Object ---
 [[durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# 既存ワーカー用のマイグレーションタグ（変更不要）
+# 既存ワーカー用のマイグレーションタグ
 [[migrations]]
 tag = "v3-slot-lock"
 new_classes = ["SlotLock"]
 
-# 任意の定数（必要なら）
+# 任意（必要なら）
 [vars]
 BASE_URL = "https://saas-api.hekujiincun.workers.dev"
