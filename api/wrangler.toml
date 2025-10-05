@@ -4,23 +4,37 @@ main = "src/index.ts"
 compatibility_date = "2024-10-01"
 workers_dev = true
 minify = true
-legacy_env = false  # ← env.* を継承しない
+legacy_env = false
 
-# --- KV（本番 & プレビュー） ---
+# ----- default 環境（本番相当） -----
 [[kv_namespaces]]
 binding    = "LINE_BOOKING"
-id         = "22103efd0bd04365a2ec050a24b3dbc4"   # ← LINE_BOOKING
-preview_id = "03bbf9082957456cb4c18159d6788808"   # ← LINE_BOOKING_preview
+id         = "22103efd0bd04365a2ec050a24b3dbc4"   # LINE_BOOKING
+preview_id = "03bbf9082957456cb4c18159d6788808"   # LINE_BOOKING_preview
 
-# --- Durable Object ---
 [[durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# 既存ワーカーに合わせたマイグレーション（触らない）
 [[migrations]]
 tag = "v3-slot-lock"
 new_classes = ["SlotLock"]
 
 [vars]
+BASE_URL = "https://saas-api.hekujiincun.workers.dev"
+
+# ----- ここがポイント：staging 環境も明示してダミー参照を消す -----
+[env.staging]
+# 同じバインドをそのまま指定（別IDにしたい場合は差し替え）
+
+[[env.staging.kv_namespaces]]
+binding    = "LINE_BOOKING"
+id         = "22103efd0bd04365a2ec050a24b3dbc4"
+preview_id = "03bbf9082957456cb4c18159d6788808"
+
+[[env.staging.durable_objects.bindings]]
+name = "SLOT_LOCK"
+class_name = "SlotLock"
+
+[env.staging.vars]
 BASE_URL = "https://saas-api.hekujiincun.workers.dev"
