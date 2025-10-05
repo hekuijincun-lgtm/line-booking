@@ -4,12 +4,12 @@ main = "src/index.ts"
 compatibility_date = "2024-10-01"
 workers_dev = true
 minify = true
-legacy_env = false  # env継承を明示OFF
+legacy_env = false  # ← env.* を継承しない
 
-# --- KV（本番・プレビュー） ---
+# --- KV（本番 & プレビュー） ---
 [[kv_namespaces]]
 binding    = "LINE_BOOKING"
-id         = "22103efd0bd04365a2ec050a24b3dbc4"   # ← LINE_BOOKING（本番）
+id         = "22103efd0bd04365a2ec050a24b3dbc4"   # ← LINE_BOOKING
 preview_id = "03bbf9082957456cb4c18159d6788808"   # ← LINE_BOOKING_preview
 
 # --- Durable Object ---
@@ -17,7 +17,7 @@ preview_id = "03bbf9082957456cb4c18159d6788808"   # ← LINE_BOOKING_preview
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# 既存スクリプトに合わせる（そのまま）
+# 既存ワーカーに合わせたマイグレーション（触らない）
 [[migrations]]
 tag = "v3-slot-lock"
 new_classes = ["SlotLock"]
