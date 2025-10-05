@@ -16,18 +16,18 @@ preview_id = "03bbf9082957456cb4c18159d6788808"   # LINE_BOOKING_preview
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# Freeプランは new_sqlite_classes を使う
+# Free プランは new_sqlite_classes を使う
 [[migrations]]
 tag = "0001"
 new_sqlite_classes = ["SlotLock"]
 
-# 任意の定数（共通）
+# ✅ ここに管理者IDをセット（カンマで複数可）
 [vars]
 BASE_URL = "https://saas-api.hekuijincun.workers.dev"
+ADMINS   = "U929e7fcc7a5ed0c4cbcd0c4c9b001815"
 
 # ===== staging 環境（--env staging） =====
 [env.staging]
-# 念のため main も明記
 main = "src/index.ts"
 
 [[env.staging.kv_namespaces]]
@@ -39,12 +39,10 @@ preview_id = "03bbf9082957456cb4c18159d6788808"
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# staging でも DO の SQLite マイグレーションを実行
 [[env.staging.migrations]]
 tag = "0001"
 new_sqlite_classes = ["SlotLock"]
 
 [env.staging.vars]
 BASE_URL = "https://saas-api.hekuijincun.workers.dev"
-# ← 管理者コマンド（/set-slots, /list, /copy-slots, /report）が通るように必須
 ADMINS   = "U929e7fcc7a5ed0c4cbcd0c4c9b001815"
