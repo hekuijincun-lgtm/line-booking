@@ -1,9 +1,10 @@
 // src/index.ts
 // SaaS予約（CSVなし） + 署名検証 + 管理者限定 + RateLimit + /copy-slots + /report
-// 追加パッチ: 
+// 追加パッチ:
 //  - /set-slots が「スペース/カンマ/全角」区切りの両対応に
-//  - /list が「YYYY-MM」(月指定) に対応
+//  - /list が「YYYY-MM」(月指定) に対応（登録/予約/空き｜先頭の空き）
 //  - RateLimit の TTL が窓の終端まで固定化（連投で永続化しない）
+//  - /whoami が 1:1 / group / room でプロフ取得に対応
 // Webhook: /api/line/webhook
 // Health:  /__health
 
@@ -279,31 +280,58 @@ async function handleCancel(env: Env, args: string[], replyToken: string, userId
   return lineReply(env, replyToken, `✅ 予約をキャンセルしたよ。\n日時: ${date} ${time}`);
 }
 
-// 月別一覧
-async function listByMonth(env: Env, ym: string, replyToken: string) {
-  const prefix = `R:${ym}-`;
-  const it = await env.LINE_BOOKING.list({ prefix, limit: 2000 });
-  const days: Record<string, string[]> = {};
-  for (const k of it.keys) {
-    const m = /^R:(\d{4}-\d{2}-\d{2})\s(.+)$/.exec(k.name);
-    if (!m) continue;
-    const d = m[1], t = m[2];
-    (days[d] ||= []).push(t);
-  }
-  const lines = Object.entries(days)
-    .sort(([a],[b]) => a.localeCompare(b))
-    .map(([d, ts]) => `📅 ${d}\n　予約: ${ts.sort().join(", ") || "なし"}`);
-  if (!lines.length) return lineReply(env, replyToken, `📆 ${ym} の予約はまだないよ`);
-  return lineReply(env, replyToken, `🗓️ ${ym} の予約一覧\n\n${lines.join("\n")}`);
+// =============== 月別一覧（登録/予約/空き｜先頭の空き） ===============
+function daysInMonth(y: number, m: number): number {
+  return new Date(y, m, 0).getDate();
+}
+function dayOfWeekEmoji(y: number, m: number, d: number): string {
+  const w = new Date(y, m - 1, d).getDay();
+  return ["🔵","🟢","🟡","🟣","🟠","🔴","⚫"][w]; // 日〜土
 }
 
+async function listMonth(env: Env, ym: string, replyToken: string) {
+  // ym = "2025-10"
+  const [yy, mm] = ym.split("-").map(Number);
+  if (!yy || !mm || mm < 1 || mm > 12) {
+    return lineReply(env, replyToken, "形式: /list YYYY-MM だよ（例: /list 2025-10）");
+  }
+  const last = daysInMonth(yy, mm);
+  const lines: string[] = [];
+  const header = `📅 ${ym} の枠一覧（登録/予約/空き｜→先頭の空き）`;
+
+  for (let d = 1; d <= last; d++) {
+    const date = `${ym}-${String(d).padStart(2, "0")}`;
+
+    // 登録済みスロット
+    const raw = await env.LINE_BOOKING.get(K_SLOTS(date));
+    const slots: string[] = raw ? JSON.parse(raw) : [];
+
+    // 予約済み（R:YYYY-MM-DD HH:MM）
+    const it = await env.LINE_BOOKING.list({ prefix: `R:${date} `, limit: 1000 });
+    const taken = new Set(it.keys.map(k => k.name.substring(`R:${date} `.length)));
+
+    const total = slots.length;
+    const reserved = slots.filter(t => taken.has(t)).length;
+    const free = Math.max(total - reserved, 0);
+    const firstFree = slots.find(t => !taken.has(t));
+
+    const dow = dayOfWeekEmoji(yy, mm, d);
+    lines.push(`${dow} ${date} ｜ ${total}/${reserved}/${free}${firstFree ? `｜→ ${firstFree}` : ""}`);
+  }
+
+  return lineReply(env, replyToken, [header, ...lines].join("\n"));
+}
+
+// =============== /list（日 or 月） ===============
 async function handleList(env: Env, args: string[], replyToken: string) {
   if (args.length < 1) return lineReply(env, replyToken, "使い方：/list YYYY-MM-DD | YYYY-MM");
   const arg = args[0];
+
+  // 月指定
   const month = normalizeMonthArg(arg);
-  if (month) {
-    return listByMonth(env, month, replyToken);
-  }
+  if (month) return listMonth(env, month, replyToken);
+
+  // 日指定
   const date = normalizeDateArg(arg);
   if (!date) return lineReply(env, replyToken, "日付の形式が変だよ（例：2025-10-05 または 2025-10）");
 
@@ -317,9 +345,13 @@ async function handleList(env: Env, args: string[], replyToken: string) {
     rows.push({ time: k.name.substring(prefix.length), userId: r.userId, service: r.service });
   }
   rows.sort((a, b) => a.time.localeCompare(b.time));
-  return lineReply(env, replyToken,
-    rows.length ? "【当日の予約】\n" + rows.map(r => `・${r.time} ${r.service}（${r.userId}）`).join("\n")
-                : "その日の予約はまだ無いよ🗓️");
+  return lineReply(
+    env,
+    replyToken,
+    rows.length
+      ? "【当日の予約】\n" + rows.map(r => `・${r.time} ${r.service}（${r.userId}）`).join("\n")
+      : "その日の予約はまだ無いよ🗓️"
+  );
 }
 
 // 追加：枠コピペ
@@ -368,18 +400,55 @@ async function handleReport(env: Env, args: string[], replyToken: string) {
   return lineReply(env, replyToken, [`【${ym} レポート】合計 ${total}件`, "— 日別 —", days, "— サービス別 —", svc].join("\n"));
 }
 
+// =============== /whoami（user / group / room 対応） ===============
+function maskId(s?: string) { return s ? s.slice(0,4) + "..." + s.slice(-4) : "unknown"; }
+
+async function whoAmI(ev: any, env: Env): Promise<string> {
+  const src = ev?.source || {};
+  const uid = src.userId as string | undefined;
+  const gid = src.groupId as string | undefined;
+  const rid = src.roomId  as string | undefined;
+
+  if (!uid) return "whoami: userId が取れないみたい。";
+  if (!env.LINE_CHANNEL_ACCESS_TOKEN) return "whoami: トークン未設定だよ。\nwrangler secret put LINE_CHANNEL_ACCESS_TOKEN を実行してね。";
+
+  // エンドポイント切り替え
+  let url = `https://api.line.me/v2/bot/profile/${uid}`;
+  if (gid) url = `https://api.line.me/v2/bot/group/${gid}/member/${uid}`;
+  if (rid) url = `https://api.line.me/v2/bot/room/${rid}/member/${uid}`;
+
+  let prof: any = null;
+  try {
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}` } });
+    if (r.ok) prof = await r.json();
+  } catch {/* ignore */}
+
+  const out = [
+    "🧑‍💻 whoami",
+    `type: ${src.type || "unknown"}`,
+    `userId: ${maskId(uid)}`,
+    gid ? `groupId: ${maskId(gid)}` : undefined,
+    rid ? `roomId: ${maskId(rid)}` : undefined,
+    prof?.displayName ? `name: ${prof.displayName}` : undefined,
+    prof?.language ? `lang: ${prof.language}` : undefined,
+    prof?.statusMessage ? `status: ${prof.statusMessage}` : undefined,
+  ].filter(Boolean).join("\n");
+
+  return prof ? out : out + "\n（プロフィール取得に失敗。友だち関係/権限/種別を確認してね）";
+}
+
 // =============== Router ===============
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     try {
       const url = new URL(req.url);
 
-      const FEATURES = { monthList: true, flexibleSlots: true } as const;
-if (url.pathname === "/__health") {
-  return new Response(JSON.stringify({ ok: true, ts: Date.now(), env: env.BASE_URL || "default", features: FEATURES }), {
-    headers: { "content-type": "application/json" }
-  });
-}
+      const FEATURES = { monthList: true, flexibleSlots: true, whoami: true } as const;
+      if (url.pathname === "/__health") {
+        return new Response(JSON.stringify({ ok: true, ts: Date.now(), env: env.BASE_URL || "default", features: FEATURES }), {
+          headers: { "content-type": "application/json" }
+        });
+      }
 
       if (url.pathname === "/api/line/webhook" && req.method === "POST") {
         // ---- 署名検証（生ボディで） ----
@@ -438,7 +507,8 @@ if (url.pathname === "/__health") {
               await handleReport(env, rest, replyToken);
 
             } else if (cmd === "/whoami" || cmd === "whoami") {
-              await lineReply(env, replyToken, `あなたのLINEユーザーID: ${userId}`);
+              const text = await whoAmI(ev, env);
+              await lineReply(env, replyToken, text);
 
             } else {
               await lineReply(env, replyToken, [
