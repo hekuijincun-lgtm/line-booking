@@ -1,10 +1,7 @@
 // src/index.ts
-// SaaS予約（CSVなし） + 署名検証 + 管理者限定 + RateLimit + /copy-slots + /report
-// パッチ:
-//  - /set-slots が「スペース/カンマ/全角」区切りの両対応
-//  - /list が「YYYY-MM」(月指定) に対応（登録/予約/空き｜先頭の空き）
-//  - RateLimit の TTL が窓の終端まで固定化
-//  - /whoami が 1:1 / group / room でプロフ取得に対応
+// SaaS booking (no CSV) + signature verification + admin-only commands
+// + RateLimit + /copy-slots + /report + /list YYYY-MM (month)
+// + /whoami works for 1:1 / group / room
 // Webhook: /api/line/webhook
 // Health:  /__health
 
@@ -12,10 +9,10 @@ export interface Env {
   LINE_BOOKING: KVNamespace;
   SLOT_LOCK: DurableObjectNamespace;
   LINE_CHANNEL_ACCESS_TOKEN: string; // wrangler secret
-  LINE_CHANNEL_SECRET: string;       // 署名検証で使用（必須）
-  ADMINS?: string;                   // "Uxxxx, Uyyyy" カンマ区切り
+  LINE_CHANNEL_SECRET: string;       // required for signature verification
+  ADMINS?: string;                   // "Uxxxx, Uyyyy" comma separated
   BASE_URL?: string;
-  SLACK_WEBHOOK_URL?: string;        // 任意
+  SLACK_WEBHOOK_URL?: string;        // optional
 }
 
 const TZ = "Asia/Tokyo";
@@ -32,13 +29,13 @@ const K_SLOTS = (date: string) => `S:${date}`;
 const K_RES   = (date: string, time: string) => `R:${date} ${time}`;
 const K_USER  = (uid: string, date: string, time: string) => `U:${uid}:${date} ${time}`;
 
-// 管理者判定
+// admin check
 function isAdmin(uid: string, env: Env) {
   const list = (env.ADMINS || "").split(",").map(s => s.trim()).filter(Boolean);
   return list.includes(uid);
 }
 
-// LINE署名検証
+// LINE signature verification
 function toBase64(ab: ArrayBuffer): string {
   let s = ""; const v = new Uint8Array(ab);
   for (let i = 0; i < v.length; i++) s += String.fromCharCode(v[i]);
@@ -55,11 +52,11 @@ async function verifyLineSignature(req: Request, env: Env, raw: string): Promise
   return sig === toBase64(mac);
 }
 
-// RateLimit（uidごと 秒窓）: 窓の終端まで TTL を維持
+// RateLimit (per uid, fixed TTL to end of the window)
 async function rateLimit(env: Env, uid: string, limit = 10, windowSec = 60) {
   const now = Math.floor(Date.now() / 1000);
   const windowStart = Math.floor(now / windowSec) * windowSec;
-  const ttl = windowStart + windowSec - now; // その窓の残り秒数
+  const ttl = windowStart + windowSec - now;
   const bucket = `RL:${uid}:${Math.floor(now / windowSec)}`;
   const current = parseInt((await env.LINE_BOOKING.get(bucket)) || "0", 10) + 1;
   await env.LINE_BOOKING.put(bucket, String(current), { expirationTtl: Math.max(ttl, 1) });
@@ -68,11 +65,11 @@ async function rateLimit(env: Env, uid: string, limit = 10, windowSec = 60) {
 
 const quickActions = () => ({
   items: [
-    { type: "action", action: { type: "message", label: "空き枠を見る", text: "/slots 今日" } },
-    { type: "action", action: { type: "message", label: "予約する",   text: "/reserve 2025-10-05 16:30 カット" } },
-    { type: "action", action: { type: "message", label: "自分の予約", text: "/my" } },
-    { type: "action", action: { type: "message", label: "予約取消",   text: "/cancel 2025-10-05 16:30" } },
-    { type: "action", action: { type: "message", label: "自分のID",   text: "/whoami" } },
+    { type: "action", action: { type: "message", label: "Show slots",   text: "/slots today" } },
+    { type: "action", action: { type: "message", label: "Reserve",       text: "/reserve 2025-10-05 16:30 cut" } },
+    { type: "action", action: { type: "message", label: "My bookings",   text: "/my" } },
+    { type: "action", action: { type: "message", label: "Cancel",        text: "/cancel 2025-10-05 16:30" } },
+    { type: "action", action: { type: "message", label: "Who am I",      text: "/whoami" } },
   ],
 });
 
@@ -88,9 +85,9 @@ const lineReply = async (env: Env, replyToken: string, text: string) => {
 };
 
 const fmtSlots = (date: string, opens: string[]) =>
-  [`[SLOTS] ${date} の空き状況`, `空き: ${opens.length ? opens.join(", ") : "なし"}`].join("\n");
+  [`[${date}] open slots`, `open: ${opens.length ? opens.join(", ") : "none"}`].join("\n");
 
-// --- Slack 通知（任意; URL 未設定なら何もしない） ---
+// --- Slack notify (optional) ---
 async function notifySlack(env: Env, title: string, payload: any) {
   const url = env.SLACK_WEBHOOK_URL || "";
   if (!url) return;
@@ -99,15 +96,13 @@ async function notifySlack(env: Env, title: string, payload: any) {
     .catch(() => {});
 }
 
-// =============== 入力正規化 ===============
-// 時刻の柔軟パーサ（スペース/カンマ/全角区切り、10 または 10:30 などを許容）
+// =============== Input normalization ===============
+// times parser: supports "10" or "10:30", space/comma separated
 function parseTimesFlexible(tokens: string[]): string[] {
-  const joined = tokens.join(" ")
-    .replace(/[、，]/g, ",")   // 全角カンマ→半角
-    .replace(/\s+/g, " ");     // スペース正規化（全角含む）
+  const joined = tokens.join(" ").replace(/\s+/g, " ");
   const parts = joined.split(/[ ,]+/).map(s => s.trim()).filter(Boolean);
   const norm = (t: string) => {
-    const m = t.match(/^(\d{1,2})(?::|：)?(\d{2})?$/);
+    const m = t.match(/^(\d{1,2})(?::)?(\d{2})?$/);
     if (!m) return null;
     const h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
     const mi = m[2] ? Math.min(59, Math.max(0, parseInt(m[2], 10))) : 0;
@@ -119,8 +114,8 @@ function parseTimesFlexible(tokens: string[]): string[] {
 type Parsed = { date: string; time: string; service: string };
 
 function normalizeDateArg(s: string): string | null {
-  const z = s.normalize("NFKC").replace(/\s+/g, " ").trim();
-  if (z === "今日" || z.toLowerCase() === "today") {
+  const z = s.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
+  if (z === "today") {
     const d = nowJST();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
@@ -130,15 +125,15 @@ function normalizeDateArg(s: string): string | null {
 }
 
 function normalizeMonthArg(s: string): string | null {
-  const z = s.normalize("NFKC").trim().replace(/[／．.]/g, "-");
+  const z = s.normalize("NFKC").trim().replace(/[/.]/g, "-");
   const m = z.match(/^(\d{4})-(\d{1,2})$/);
   if (m) return `${m[1]}-${m[2].padStart(2, "0")}`;
   return isYm(z) ? z : null;
 }
 
-function parseReserve(text: string, defaultService = "カット"): Parsed | null {
+function parseReserve(text: string, defaultService = "cut"): Parsed | null {
   const z = text.normalize("NFKC").replace(/\s+/g, " ").trim();
-  const m = z.match(/(?:^\/?reserve\s+)?(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2})[:：](\d{2})(?:\s+(.+))?$/i);
+  const m = z.match(/(?:^\/?reserve\s+)?(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2})(?:\s+(.+))?$/i);
   if (!m) return null;
   const date = `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
   const time = `${m[4].padStart(2, "0")}:${m[5].padStart(2, "0")}`;
@@ -176,23 +171,23 @@ async function release(env: Env, key: string) {
 
 // =============== Handlers ===============
 async function handleSetSlots(env: Env, args: string[], replyToken: string) {
-  if (args.length < 2) return lineReply(env, replyToken, "使い方: /set-slots YYYY-MM-DD 10:00,11:00,16:30");
+  if (args.length < 2) return lineReply(env, replyToken, "Usage: /set-slots YYYY-MM-DD 10:00,11:00,16:30");
   const date = normalizeDateArg(args[0]);
-  if (!date) return lineReply(env, replyToken, "日付の形式が変だよ（例: 2025-10-05）");
+  if (!date) return lineReply(env, replyToken, "Bad date format (ex: 2025-10-05)");
   const times = parseTimesFlexible(args.slice(1));
-  if (!times.length) return lineReply(env, replyToken, "時刻の指定が見つからないよ（例: 10:00 10:30 11:00）");
+  if (!times.length) return lineReply(env, replyToken, "No time specified (ex: 10:00 10:30 11:00)");
   await env.LINE_BOOKING.put(K_SLOTS(date), JSON.stringify(times));
-  return lineReply(env, replyToken, `OK: ${date} の枠を更新したよ。\n${times.join(", ")}`);
+  return lineReply(env, replyToken, `OK: slots updated for ${date}\n${times.join(", ")}`);
 }
 
 async function handleSlots(env: Env, args: string[], replyToken: string) {
-  if (args.length < 1) return lineReply(env, replyToken, "使い方: /slots YYYY-MM-DD（例: /slots 今日）");
+  if (args.length < 1) return lineReply(env, replyToken, "Usage: /slots YYYY-MM-DD (ex: /slots today)");
   const date = normalizeDateArg(args[0]);
-  if (!date) return lineReply(env, replyToken, "日付の形式が変だよ（例: 2025-10-05）");
+  if (!date) return lineReply(env, replyToken, "Bad date format (ex: 2025-10-05)");
 
   const slotStr = await env.LINE_BOOKING.get(K_SLOTS(date));
   const slots: string[] = slotStr ? JSON.parse(slotStr) : [];
-  if (!slots.length) return lineReply(env, replyToken, `[WARN] ${date} の枠は未設定だよ。/set-slots で入れてね。`);
+  if (!slots.length) return lineReply(env, replyToken, `[WARN] no slots defined for ${date}. Use /set-slots first.`);
 
   const reserved = await env.LINE_BOOKING.list({ prefix: `R:${date} ` });
   const taken = new Set(reserved.keys.map(k => k.name.substring(`R:${date} `.length)));
@@ -201,27 +196,27 @@ async function handleSlots(env: Env, args: string[], replyToken: string) {
 }
 
 async function handleReserve(env: Env, z: string, replyToken: string, userId: string, userName?: string) {
-  const p = parseReserve(z, "カット");
-  if (!p) return lineReply(env, replyToken, "例）/reserve 2025-10-05 16:30 カット");
+  const p = parseReserve(z, "cut");
+  if (!p) return lineReply(env, replyToken, "ex) /reserve 2025-10-05 16:30 cut");
   const { date, time, service } = p;
-  if (isPast(date, time)) return lineReply(env, replyToken, "過去の時間は予約できないよ。");
+  if (isPast(date, time)) return lineReply(env, replyToken, "Cannot reserve past time.");
 
   const slotStr = await env.LINE_BOOKING.get(K_SLOTS(date));
   const slots: string[] = slotStr ? JSON.parse(slotStr) : [];
-  if (!slots.includes(time)) return lineReply(env, replyToken, `その時間は枠にないよ。\nまず /slots ${date} で確認してね。`);
+  if (!slots.includes(time)) return lineReply(env, replyToken, `Time not in slots. Check with /slots ${date}`);
 
   const key = `${date} ${time}`;
   try {
     await acquire(env, key, 15);
     if (await env.LINE_BOOKING.get(K_RES(date, time))) {
-      return lineReply(env, replyToken, "ごめん！その枠はちょうど埋まっちゃった。他の時間を試してね。");
+      return lineReply(env, replyToken, "Sorry, just taken. Try another time.");
     }
     const rec = { userId, userName, service, date, time, ts: Date.now() };
     await env.LINE_BOOKING.put(K_RES(date, time), JSON.stringify(rec));
     await env.LINE_BOOKING.put(K_USER(userId, date, time), "1");
-    return lineReply(env, replyToken, `OK: 予約を登録したよ。\n日時: ${date} ${time}\n内容: ${service}`);
+    return lineReply(env, replyToken, `OK: reserved.\nwhen: ${date} ${time}\nservice: ${service}`);
   } catch (e: any) {
-    if (e?.message === "LOCKED") return lineReply(env, replyToken, "同時に予約が集中してるよ。少しだけ置いて再試行してね。");
+    if (e?.message === "LOCKED") return lineReply(env, replyToken, "High contention. Please retry shortly.");
     await notifySlack(env, "RESERVE_FAIL", { date, time, userId, err: e?.message || String(e) });
     throw e;
   } finally {
@@ -242,14 +237,14 @@ async function handleMy(env: Env, args: string[], replyToken: string, userId: st
       if (when >= now) items.push({ date: m[1], time: m[2] });
     }
     items.sort((a, b) => (`${a.date} ${a.time}`).localeCompare(`${b.date} ${b.time}`));
-    return lineReply(env, replyToken, items.length ? `あなたの予約\n${items.map(i => `・${i.date} ${i.time}`).join("\n")}` : "あなたの予約はないよ。");
+    return lineReply(env, replyToken, items.length ? `Your bookings\n${items.map(i => `- ${i.date} ${i.time}`).join("\n")}` : "No upcoming bookings.");
   }
 
   if (isYmd(q)) {
     const prefix = `U:${userId}:${q} `;
     const list = await env.LINE_BOOKING.list({ prefix, limit: 100 });
-    const lines = list.keys.map(k => `・${q} ${k.name.substring(prefix.length)}`);
-    return lineReply(env, replyToken, lines.length ? `あなたの予約\n${lines.join("\n")}` : "その日の予約はないよ。");
+    const lines = list.keys.map(k => `- ${q} ${k.name.substring(prefix.length)}`);
+    return lineReply(env, replyToken, lines.length ? `Your bookings\n${lines.join("\n")}` : "No bookings for that day.");
   }
 
   if (isYm(q)) {
@@ -257,56 +252,53 @@ async function handleMy(env: Env, args: string[], replyToken: string, userId: st
     const list = await env.LINE_BOOKING.list({ prefix, limit: 1000 });
     const lines = list.keys.map(k => {
       const m = k.name.match(/^U:[^:]+:(\d{4}-\d{2}-\d{2})\s(.+)$/);
-      return m ? `・${m[1]} ${m[2]}` : "";
+      return m ? `- ${m[1]} ${m[2]}` : "";
     }).filter(Boolean);
-    return lineReply(env, replyToken, lines.length ? `あなたの予約（${q}）\n${lines.join("\n")}` : "その月の予約はないよ。");
+    return lineReply(env, replyToken, lines.length ? `Your bookings (${q})\n${lines.join("\n")}` : "No bookings for that month.");
   }
 
-  return lineReply(env, replyToken, "使い方: /my（未来の予約一覧） | /my 2025-10-05 | /my 2025-10");
+  return lineReply(env, replyToken, "Usage: /my | /my YYYY-MM-DD | /my YYYY-MM");
 }
 
 async function handleCancel(env: Env, args: string[], replyToken: string, userId: string) {
-  if (args.length < 2) return lineReply(env, replyToken, "使い方: /cancel YYYY-MM-DD HH:MM");
+  if (args.length < 2) return lineReply(env, replyToken, "Usage: /cancel YYYY-MM-DD HH:MM");
   const date = normalizeDateArg(args[0]);
-  if (!date) return lineReply(env, replyToken, "日付の形式が変だよ（例: 2025-10-05）");
+  if (!date) return lineReply(env, replyToken, "Bad date format (ex: 2025-10-05)");
   const time = args[1].normalize("NFKC");
   const recStr = await env.LINE_BOOKING.get(K_RES(date, time));
-  if (!recStr) return lineReply(env, replyToken, "その枠の予約は見つからないよ。");
+  if (!recStr) return lineReply(env, replyToken, "Reservation not found.");
   const rec = JSON.parse(recStr);
-  if (rec.userId !== userId) return lineReply(env, replyToken, "この予約はあなたのものじゃないみたい。");
+  if (rec.userId !== userId) return lineReply(env, replyToken, "This reservation is not yours.");
 
   await env.LINE_BOOKING.delete(K_RES(date, time));
   await env.LINE_BOOKING.delete(K_USER(userId, date, time));
-  return lineReply(env, replyToken, `OK: 予約をキャンセルしたよ。\n日時: ${date} ${time}`);
+  return lineReply(env, replyToken, `OK: canceled.\nwhen: ${date} ${time}`);
 }
 
-// =============== 月別一覧（登録/予約/空き｜先頭の空き） ===============
+// =============== Month listing (registered/reserved/free | first free) ===============
 function daysInMonth(y: number, m: number): number {
   return new Date(y, m, 0).getDate();
 }
-function dayOfWeekTag(y: number, m: number, d: number): string {
+function dayOfWeekLabel(y: number, m: number, d: number): string {
   const w = new Date(y, m - 1, d).getDay();
   return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][w];
 }
 
 async function listMonth(env: Env, ym: string, replyToken: string) {
-  // ym = "2025-10"
   const [yy, mm] = ym.split("-").map(Number);
   if (!yy || !mm || mm < 1 || mm > 12) {
-    return lineReply(env, replyToken, "形式: /list YYYY-MM だよ（例: /list 2025-10）");
-    }
+    return lineReply(env, replyToken, "Usage: /list YYYY-MM (ex: /list 2025-10)");
+  }
   const last = daysInMonth(yy, mm);
   const lines: string[] = [];
-  const header = `[MONTH] ${ym} の枠一覧（登録/予約/空き｜先頭の空き）`;
+  const header = `[${ym}] slots summary (registered/reserved/free | -> first open)`;
 
   for (let d = 1; d <= last; d++) {
     const date = `${ym}-${String(d).padStart(2, "0")}`;
 
-    // 登録済みスロット
     const raw = await env.LINE_BOOKING.get(K_SLOTS(date));
     const slots: string[] = raw ? JSON.parse(raw) : [];
 
-    // 予約済み（R:YYYY-MM-DD HH:MM）
     const it = await env.LINE_BOOKING.list({ prefix: `R:${date} `, limit: 1000 });
     const taken = new Set(it.keys.map(k => k.name.substring(`R:${date} `.length)));
 
@@ -315,25 +307,23 @@ async function listMonth(env: Env, ym: string, replyToken: string) {
     const free = Math.max(total - reserved, 0);
     const firstFree = slots.find(t => !taken.has(t));
 
-    const dow = dayOfWeekTag(yy, mm, d);
-    lines.push(`${dow} ${date} ｜ ${total}/${reserved}/${free}${firstFree ? `｜→ ${firstFree}` : ""}`);
+    const dow = dayOfWeekLabel(yy, mm, d);
+    lines.push(`${dow} ${date} | ${total}/${reserved}/${free}${firstFree ? ` | -> ${firstFree}` : ""}`);
   }
 
   return lineReply(env, replyToken, [header, ...lines].join("\n"));
 }
 
-// =============== /list（日 or 月） ===============
+// =============== /list (day or month) ===============
 async function handleList(env: Env, args: string[], replyToken: string) {
-  if (args.length < 1) return lineReply(env, replyToken, "使い方: /list YYYY-MM-DD | YYYY-MM");
+  if (args.length < 1) return lineReply(env, replyToken, "Usage: /list YYYY-MM-DD | YYYY-MM");
   const arg = args[0];
 
-  // 月指定
   const month = normalizeMonthArg(arg);
   if (month) return listMonth(env, month, replyToken);
 
-  // 日指定
   const date = normalizeDateArg(arg);
-  if (!date) return lineReply(env, replyToken, "日付の形式が変だよ（例: 2025-10-05 または 2025-10）");
+  if (!date) return lineReply(env, replyToken, "Bad date format (ex: 2025-10-05 or 2025-10)");
 
   const prefix = `R:${date} `;
   const it = await env.LINE_BOOKING.list({ prefix, limit: 1000 });
@@ -349,31 +339,31 @@ async function handleList(env: Env, args: string[], replyToken: string) {
     env,
     replyToken,
     rows.length
-      ? "【当日の予約】\n" + rows.map(r => `・${r.time} ${r.service}（${r.userId}）`).join("\n")
-      : "その日の予約はまだ無いよ。"
+      ? "[bookings of the day]\n" + rows.map(r => `- ${r.time} ${r.service} (${r.userId})`).join("\n")
+      : "No bookings for that day."
   );
 }
 
-// 追加：枠コピペ
+// =============== copy slots ===============
 async function handleCopySlots(env: Env, args: string[], replyToken: string) {
   // /copy-slots 2025-10-05 2025-10-12
-  if (args.length < 2) return lineReply(env, replyToken, "使い方: /copy-slots YYYY-MM-DD YYYY-MM-DD");
+  if (args.length < 2) return lineReply(env, replyToken, "Usage: /copy-slots YYYY-MM-DD YYYY-MM-DD");
   const src = normalizeDateArg(args[0]); const dst = normalizeDateArg(args[1]);
-  if (!src || !dst) return lineReply(env, replyToken, "日付の形式が変だよ（例: 2025-10-05）");
+  if (!src || !dst) return lineReply(env, replyToken, "Bad date format (ex: 2025-10-05)");
   const s = await env.LINE_BOOKING.get(K_SLOTS(src));
   const slots: string[] = s ? JSON.parse(s) : [];
   const normalized = Array.from(new Set(slots)).sort();
   await env.LINE_BOOKING.put(K_SLOTS(dst), JSON.stringify(normalized));
-  return lineReply(env, replyToken, `OK: 枠をコピーしたよ。\n${src} -> ${dst}\n${normalized.join(", ")}`);
+  return lineReply(env, replyToken, `OK: copied slots.\n${src} -> ${dst}\n${normalized.join(", ")}`);
 }
 
-// 追加：月次サマリ
+// =============== monthly report ===============
 async function handleReport(env: Env, args: string[], replyToken: string) {
   // /report 2025-10
-  if (args.length < 1) return lineReply(env, replyToken, "使い方: /report YYYY-MM");
+  if (args.length < 1) return lineReply(env, replyToken, "Usage: /report YYYY-MM");
   const ymRaw = args[0].normalize("NFKC");
   const ym = normalizeMonthArg(ymRaw);
-  if (!ym) return lineReply(env, replyToken, "月の形式が変だよ（例: 2025-10）");
+  if (!ym) return lineReply(env, replyToken, "Bad month format (ex: 2025-10)");
 
   const prefix = `R:${ym}-`;
   const it = await env.LINE_BOOKING.list({ prefix, limit: 2000 });
@@ -387,20 +377,20 @@ async function handleReport(env: Env, args: string[], replyToken: string) {
     const recStr = await env.LINE_BOOKING.get(k.name); if (!recStr) continue;
     try {
       const rec = JSON.parse(recStr);
-      const s = String(rec.service || "未指定");
+      const s = String(rec.service || "unknown");
       byService[s] = (byService[s] || 0) + 1;
     } catch {}
   }
 
   const days = Object.entries(dayCount).sort((a,b)=>a[0].localeCompare(b[0]))
-               .map(([d,c])=>`・${d} : ${c}件`).join("\n") || "（なし）";
+               .map(([d,c])=>`- ${d} : ${c}`).join("\n") || "(none)";
   const svc  = Object.entries(byService).sort((a,b)=>b[1]-a[1])
-               .map(([s,c])=>`・${s} : ${c}件`).join("\n") || "（なし）";
+               .map(([s,c])=>`- ${s} : ${c}`).join("\n") || "(none)";
   const total = Object.values(dayCount).reduce((a,b)=>a+b,0);
-  return lineReply(env, replyToken, [`【${ym} レポート】合計 ${total}件`, "— 日別 —", days, "— サービス別 —", svc].join("\n"));
+  return lineReply(env, replyToken, [`[report ${ym}] total ${total}`, "-- by day --", days, "-- by service --", svc].join("\n"));
 }
 
-// =============== /whoami（user / group / room 対応） ===============
+// =============== /whoami (user / group / room) ===============
 function maskId(s?: string) { return s ? s.slice(0,4) + "..." + s.slice(-4) : "unknown"; }
 
 async function whoAmI(ev: any, env: Env): Promise<string> {
@@ -409,10 +399,9 @@ async function whoAmI(ev: any, env: Env): Promise<string> {
   const gid = src.groupId as string | undefined;
   const rid = src.roomId  as string | undefined;
 
-  if (!uid) return "whoami: userId が取れないみたい。";
-  if (!env.LINE_CHANNEL_ACCESS_TOKEN) return "whoami: トークン未設定だよ。wrangler secret put LINE_CHANNEL_ACCESS_TOKEN を実行してね。";
+  if (!uid) return "whoami: userId not found.";
+  if (!env.LINE_CHANNEL_ACCESS_TOKEN) return "whoami: token not set. run wrangler secret put LINE_CHANNEL_ACCESS_TOKEN.";
 
-  // エンドポイント切り替え
   let url = `https://api.line.me/v2/bot/profile/${uid}`;
   if (gid) url = `https://api.line.me/v2/bot/group/${gid}/member/${uid}`;
   if (rid) url = `https://api.line.me/v2/bot/room/${rid}/member/${uid}`;
@@ -434,7 +423,7 @@ async function whoAmI(ev: any, env: Env): Promise<string> {
     prof?.statusMessage ? `status: ${prof.statusMessage}` : undefined,
   ].filter(Boolean).join("\n");
 
-  return prof ? out : out + "\n（プロフィール取得に失敗。友だち関係/権限/種別を確認してね）";
+  return prof ? out : out + "\n(profile fetch failed. check relation/permission/type)";
 }
 
 // =============== Router ===============
@@ -451,7 +440,6 @@ export default {
       }
 
       if (url.pathname === "/api/line/webhook" && req.method === "POST") {
-        // 署名検証（生ボディで）
         const raw = await req.text();
         if (!(await verifyLineSignature(req, env, raw))) {
           await notifySlack(env, "LINE_SIGNATURE_BAD", { url: req.url });
@@ -464,22 +452,21 @@ export default {
           const replyToken: string | undefined = ev.replyToken;
           const messageText: string | undefined = ev.message?.text;
           const userId: string | undefined = ev.source?.userId;
-          const userName: string | undefined = ev.source?.userId; // 実運用はプロフィールAPIへ
+          const userName: string | undefined = ev.source?.userId; // real impl: call profile API
           if (!replyToken || !messageText || !userId) continue;
 
-          // RateLimit
           if (!(await rateLimit(env, userId))) {
-            await lineReply(env, replyToken, "リクエストが多すぎるみたい。少し待ってから試してね。");
+            await lineReply(env, replyToken, "Too many requests. Please wait a bit.");
             continue;
           }
 
           const z = messageText.normalize("NFKC").trim();
-          const [cmdRaw, ...rest] = z.split(/\s+/); // 全角/複数スペースにも強い
+          const [cmdRaw, ...rest] = z.split(/\s+/);
           const cmd = (cmdRaw || "").toLowerCase();
 
           try {
             if (cmd === "/set-slots" || cmd === "set-slots") {
-              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "このコマンドは管理者専用だよ。"); continue; }
+              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "Admin only."); continue; }
               await handleSetSlots(env, rest, replyToken);
 
             } else if (cmd === "/slots"  || cmd === "slots") {
@@ -495,15 +482,15 @@ export default {
               await handleCancel(env, rest, replyToken, userId);
 
             } else if (cmd === "/list"   || cmd === "list") {
-              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "このコマンドは管理者専用だよ。"); continue; }
+              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "Admin only."); continue; }
               await handleList(env, rest, replyToken);
 
             } else if (cmd === "/copy-slots" || cmd === "copy-slots") {
-              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "このコマンドは管理者専用だよ。"); continue; }
+              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "Admin only."); continue; }
               await handleCopySlots(env, rest, replyToken);
 
             } else if (cmd === "/report" || cmd === "report") {
-              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "このコマンドは管理者専用だよ。"); continue; }
+              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "Admin only."); continue; }
               await handleReport(env, rest, replyToken);
 
             } else if (cmd === "/whoami" || cmd === "whoami") {
@@ -512,10 +499,10 @@ export default {
 
             } else {
               await lineReply(env, replyToken, [
-                "使えるコマンド",
+                "Commands:",
                 "/set-slots YYYY-MM-DD 10:00,11:00,16:30",
                 "/slots YYYY-MM-DD",
-                "/reserve YYYY-MM-DD HH:MM [サービス]",
+                "/reserve YYYY-MM-DD HH:MM [service]",
                 "/my [YYYY-MM-DD|YYYY-MM]",
                 "/cancel YYYY-MM-DD HH:MM",
                 "/list YYYY-MM-DD | YYYY-MM",
@@ -526,7 +513,7 @@ export default {
             }
           } catch (e) {
             await notifySlack(env, "WEBHOOK_CMD_FAIL", { cmd, err: (e as any)?.message || String(e) });
-            await lineReply(env, replyToken, "内部エラーが起きたかも。もう一度試してみてね。");
+            await lineReply(env, replyToken, "Internal error. Please try again.");
           }
         }
         return new Response("OK");
