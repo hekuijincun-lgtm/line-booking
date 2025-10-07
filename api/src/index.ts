@@ -192,7 +192,9 @@ async function handleSlots(env: Env, args: string[], replyToken: string) {
 
   const slotStr = await env.LINE_BOOKING.get(K_SLOTS(date));
   const slots: string[] = slotStr ? JSON.parse(slotStr) : [];
-  if (!slots.length) return lineReply(env, replyToken, ` ${date} の枠は未設定だよ。/set-slots で入れてね。`);
+  if (!slots.length) {
+    return lineReply(env, replyToken, `⚠️ ${date} の枠は未設定だよ。/set-slots で入れてね。`);
+  }
 
   const reserved = await env.LINE_BOOKING.list({ prefix: `R:${date} ` });
   const taken = new Set(reserved.keys.map(k => k.name.substring(`R:${date} `.length)));
@@ -451,7 +453,7 @@ export default {
       }
 
       if (url.pathname === "/api/line/webhook" && req.method === "POST") {
-        // ---- 署名検証（生ボディで） ----
+        // ---- 署名検証（生ボディで）----
         const raw = await req.text();
         if (!(await verifyLineSignature(req, env, raw))) {
           await notifySlack(env, "LINE_SIGNATURE_BAD", { url: req.url });
