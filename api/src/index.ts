@@ -21,7 +21,6 @@ const TZ = "Asia/Tokyo";
 const nowJST = () => new Date(new Date().toLocaleString("en-US", { timeZone: TZ }));
 const isPast = (date: string, time: string) =>
   new Date(`${date}T${time}:00+09:00`).getTime() < nowJST().getTime();
-const uniq = (a: string[]) => [...new Set(a)];
 const isYmd = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 const isYm  = (s: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
 
@@ -346,7 +345,6 @@ async function handleList(env: Env, args: string[], replyToken: string) {
 
 // =============== copy slots ===============
 async function handleCopySlots(env: Env, args: string[], replyToken: string) {
-  // /copy-slots 2025-10-05 2025-10-12
   if (args.length < 2) return lineReply(env, replyToken, "Usage: /copy-slots YYYY-MM-DD YYYY-MM-DD");
   const src = normalizeDateArg(args[0]); const dst = normalizeDateArg(args[1]);
   if (!src || !dst) return lineReply(env, replyToken, "Bad date format (ex: 2025-10-05)");
@@ -359,7 +357,6 @@ async function handleCopySlots(env: Env, args: string[], replyToken: string) {
 
 // =============== monthly report ===============
 async function handleReport(env: Env, args: string[], replyToken: string) {
-  // /report 2025-10
   if (args.length < 1) return lineReply(env, replyToken, "Usage: /report YYYY-MM");
   const ymRaw = args[0].normalize("NFKC");
   const ym = normalizeMonthArg(ymRaw);
