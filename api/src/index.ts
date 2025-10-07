@@ -288,7 +288,6 @@ function daysInMonth(y: number, m: number): number {
   return new Date(y, m, 0).getDate();
 }
 function dayOfWeekMark(y: number, m: number, d: number): string {
-  // 日〜土: Su Mo Tu We Th Fr Sa
   return ["Su","Mo","Tu","We","Th","Fr","Sa"][new Date(y, m - 1, d).getDay()];
 }
 
