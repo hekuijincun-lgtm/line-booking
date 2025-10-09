@@ -1,7 +1,7 @@
 // src/index.ts
 // SaaS booking (no CSV) + signature verification + admin-only commands
 // + RateLimit + /copy-slots + /report + /list YYYY-MM (month)
-// + /whoami works for 1:1 / group / room
+// + /whoami works for 1:1 / group / room (+ "raw" to show full IDs)
 // Webhook: /api/line/webhook
 // Health:  /__health
 
@@ -10,7 +10,7 @@ export interface Env {
   SLOT_LOCK: DurableObjectNamespace;
   LINE_CHANNEL_ACCESS_TOKEN: string; // wrangler secret
   LINE_CHANNEL_SECRET: string;       // required for signature verification
-  ADMINS?: string;                   // "Uxxxx, Uyyyy" comma separated
+  ADMINS?: string;                   // "Uxxxx, Uyyyy" or space/、 separated
   BASE_URL?: string;
   SLACK_WEBHOOK_URL?: string;        // optional
 }
@@ -28,13 +28,18 @@ const K_SLOTS = (date: string) => `S:${date}`;
 const K_RES   = (date: string, time: string) => `R:${date} ${time}`;
 const K_USER  = (uid: string, date: string, time: string) => `U:${uid}:${date} ${time}`;
 
-// admin check
-function isAdmin(uid: string, env: Env) {
-  const list = (env.ADMINS || "").split(",").map(s => s.trim()).filter(Boolean);
-  return list.includes(uid);
+// ---- Admin utils (robust) ----
+function parseAdmins(raw?: string): Set<string> {
+  if (!raw) return new Set();
+  return new Set(
+    raw.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean)
+  );
+}
+function isAdmin(uid: string | undefined, admins: Set<string>) {
+  return !!uid && admins.has(uid);
 }
 
-// LINE signature verification
+// ---- LINE signature verification ----
 function toBase64(ab: ArrayBuffer): string {
   let s = ""; const v = new Uint8Array(ab);
   for (let i = 0; i < v.length; i++) s += String.fromCharCode(v[i]);
@@ -48,10 +53,12 @@ async function verifyLineSignature(req: Request, env: Env, raw: string): Promise
     { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
   );
   const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw));
-  return sig === toBase64(mac);
+  const expected = toBase64(mac);
+  // 一部環境ではURL-safeの可能性があるため緩めに比較（両者一致のみ）
+  return sig === expected;
 }
 
-// RateLimit (per uid, fixed TTL to end of the window)
+// ---- RateLimit (per uid, fixed TTL to end of window) ----
 async function rateLimit(env: Env, uid: string, limit = 10, windowSec = 60) {
   const now = Math.floor(Date.now() / 1000);
   const windowStart = Math.floor(now / windowSec) * windowSec;
@@ -387,40 +394,39 @@ async function handleReport(env: Env, args: string[], replyToken: string) {
   return lineReply(env, replyToken, [`[report ${ym}] total ${total}`, "-- by day --", days, "-- by service --", svc].join("\n"));
 }
 
-// =============== /whoami (user / group / room) ===============
+// =============== /whoami (user / group / room + raw) ===============
 function maskId(s?: string) { return s ? s.slice(0,4) + "..." + s.slice(-4) : "unknown"; }
 
-async function whoAmI(ev: any, env: Env): Promise<string> {
+async function whoAmI(ev: any, env: Env, admins: Set<string>, raw: boolean): Promise<string> {
   const src = ev?.source || {};
   const uid = src.userId as string | undefined;
   const gid = src.groupId as string | undefined;
   const rid = src.roomId  as string | undefined;
 
-  if (!uid) return "whoami: userId not found.";
-  if (!env.LINE_CHANNEL_ACCESS_TOKEN) return "whoami: token not set. run wrangler secret put LINE_CHANNEL_ACCESS_TOKEN.";
-
-  let url = `https://api.line.me/v2/bot/profile/${uid}`;
-  if (gid) url = `https://api.line.me/v2/bot/group/${gid}/member/${uid}`;
-  if (rid) url = `https://api.line.me/v2/bot/room/${rid}/member/${uid}`;
-
+  // プロフィール取得（失敗してもOK）
   let prof: any = null;
   try {
-    const r = await fetch(url, { headers: { Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}` } });
-    if (r.ok) prof = await r.json();
-  } catch {/* ignore */}
+    if (uid) {
+      let url = `https://api.line.me/v2/bot/profile/${uid}`;
+      if (gid) url = `https://api.line.me/v2/bot/group/${gid}/member/${uid}`;
+      if (rid) url = `https://api.line.me/v2/bot/room/${rid}/member/${uid}`;
+      const r = await fetch(url, { headers: { Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}` } });
+      if (r.ok) prof = await r.json();
+    }
+  } catch {}
 
-  const out = [
+  const lines = [
     "whoami",
     `type: ${src.type || "unknown"}`,
-    `userId: ${maskId(uid)}`,
-    gid ? `groupId: ${maskId(gid)}` : undefined,
-    rid ? `roomId: ${maskId(rid)}` : undefined,
+    `userId: ${raw ? (uid || "unknown") : maskId(uid)}`,
+    gid ? `groupId: ${raw ? gid : maskId(gid)}` : undefined,
+    rid ? `roomId: ${raw ? rid : maskId(rid)}` : undefined,
+    `isAdmin: ${isAdmin(uid, admins) ? "YES" : "NO"}`,
     prof?.displayName ? `name: ${prof.displayName}` : undefined,
     prof?.language ? `lang: ${prof.language}` : undefined,
-    prof?.statusMessage ? `status: ${prof.statusMessage}` : undefined,
-  ].filter(Boolean).join("\n");
+  ].filter(Boolean);
 
-  return prof ? out : out + "\n(profile fetch failed. check relation/permission/type)";
+  return lines.join("\n");
 }
 
 // =============== Router ===============
@@ -445,6 +451,9 @@ export default {
         const body = JSON.parse(raw || "{}");
         const events = body.events || [];
 
+        // Build admins set once per request
+        const adminsSet = parseAdmins(env.ADMINS);
+
         // DEBUG: dump events to logs so you can see userId with `wrangler tail`
         console.log("LINE_EVENT", JSON.stringify(events));
 
@@ -466,7 +475,7 @@ export default {
 
           try {
             if (cmd === "/set-slots" || cmd === "set-slots") {
-              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "Admin only."); continue; }
+              if (!isAdmin(userId, adminsSet)) { await lineReply(env, replyToken, "🚫 Admin only. Use /whoami raw and add your userId to ADMINS."); continue; }
               await handleSetSlots(env, rest, replyToken);
 
             } else if (cmd === "/slots"  || cmd === "slots") {
@@ -482,19 +491,20 @@ export default {
               await handleCancel(env, rest, replyToken, userId);
 
             } else if (cmd === "/list"   || cmd === "list") {
-              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "Admin only."); continue; }
+              if (!isAdmin(userId, adminsSet)) { await lineReply(env, replyToken, "🚫 Admin only. Use /whoami raw and add your userId to ADMINS."); continue; }
               await handleList(env, rest, replyToken);
 
             } else if (cmd === "/copy-slots" || cmd === "copy-slots") {
-              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "Admin only."); continue; }
+              if (!isAdmin(userId, adminsSet)) { await lineReply(env, replyToken, "🚫 Admin only. Use /whoami raw and add your userId to ADMINS."); continue; }
               await handleCopySlots(env, rest, replyToken);
 
             } else if (cmd === "/report" || cmd === "report") {
-              if (!isAdmin(userId, env)) { await lineReply(env, replyToken, "Admin only."); continue; }
+              if (!isAdmin(userId, adminsSet)) { await lineReply(env, replyToken, "🚫 Admin only. Use /whoami raw and add your userId to ADMINS."); continue; }
               await handleReport(env, rest, replyToken);
 
             } else if (cmd === "/whoami" || cmd === "whoami") {
-              const text = await whoAmI(ev, env);
+              const wantRaw = (rest[0]?.toLowerCase() === "raw"); // /whoami raw で生ID表示
+              const text = await whoAmI(ev, env, adminsSet, wantRaw);
               await lineReply(env, replyToken, text);
 
             } else {
@@ -508,7 +518,7 @@ export default {
                 "/list YYYY-MM-DD | YYYY-MM",
                 "/copy-slots YYYY-MM-DD YYYY-MM-DD",
                 "/report YYYY-MM",
-                "/whoami",
+                "/whoami (add 'raw' to show full IDs)",
               ].join("\n"));
             }
           } catch (e) {
