@@ -445,6 +445,9 @@ export default {
         const body = JSON.parse(raw || "{}");
         const events = body.events || [];
 
+        // DEBUG: dump events to logs so you can see userId with `wrangler tail`
+        console.log("LINE_EVENT", JSON.stringify(events));
+
         for (const ev of events) {
           const replyToken: string | undefined = ev.replyToken;
           const messageText: string | undefined = ev.message?.text;
