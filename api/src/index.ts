@@ -2,6 +2,7 @@
 // SaaS booking (no CSV) + signature verification + admin-only commands
 // + RateLimit + /copy-slots + /report + /list YYYY-MM (month)
 // + /whoami works for 1:1 / group / room (+ "raw" to show full IDs)
+// + /ping for connectivity & reply test
 // Webhook: /api/line/webhook
 // Health:  /__health
 
@@ -45,6 +46,9 @@ function toBase64(ab: ArrayBuffer): string {
   for (let i = 0; i < v.length; i++) s += String.fromCharCode(v[i]);
   return btoa(s);
 }
+function b64url(s: string): string {
+  return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
 async function verifyLineSignature(req: Request, env: Env, raw: string): Promise<boolean> {
   const sig = req.headers.get("x-line-signature") || "";
   if (!sig || !env.LINE_CHANNEL_SECRET) return false;
@@ -54,8 +58,9 @@ async function verifyLineSignature(req: Request, env: Env, raw: string): Promise
   );
   const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw));
   const expected = toBase64(mac);
-  // 一部環境ではURL-safeの可能性があるため緩めに比較（両者一致のみ）
-  return sig === expected;
+  const expectedUrl = b64url(expected);
+  // Accept both standard Base64 and Base64URL from proxies
+  return sig === expected || sig === expectedUrl;
 }
 
 // ---- RateLimit (per uid, fixed TTL to end of window) ----
@@ -79,15 +84,27 @@ const quickActions = () => ({
   ],
 });
 
+// ---- Reply with logging (so we can see errors in `wrangler tail`) ----
 const lineReply = async (env: Env, replyToken: string, text: string) => {
-  await fetch("https://api.line.me/v2/bot/message/reply", {
+  const res = await fetch("https://api.line.me/v2/bot/message/reply", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ replyToken, messages: [{ type: "text", text, quickReply: quickActions() }] }),
-  }).catch(() => {});
+  }).catch((e) => {
+    console.log("LINE_REPLY_FAIL_FETCH", String(e));
+    return null as any;
+  });
+
+  if (!res) return;
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    console.log("LINE_REPLY_FAIL", res.status, body);
+  } else {
+    console.log("LINE_REPLY_OK");
+  }
 };
 
 const fmtSlots = (date: string, opens: string[]) =>
@@ -429,6 +446,11 @@ async function whoAmI(ev: any, env: Env, admins: Set<string>, raw: boolean): Pro
   return lines.join("\n");
 }
 
+// =============== /ping (connectivity & reply test) ===============
+async function handlePing(env: Env, replyToken: string) {
+  await lineReply(env, replyToken, "pong");
+}
+
 // =============== Router ===============
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
@@ -445,6 +467,7 @@ export default {
       if (url.pathname === "/api/line/webhook" && req.method === "POST") {
         const raw = await req.text();
         if (!(await verifyLineSignature(req, env, raw))) {
+          console.log("LINE_SIGNATURE_BAD");
           await notifySlack(env, "LINE_SIGNATURE_BAD", { url: req.url });
           return new Response("unauthorized", { status: 401 });
         }
@@ -472,6 +495,7 @@ export default {
           const z = messageText.normalize("NFKC").trim();
           const [cmdRaw, ...rest] = z.split(/\s+/);
           const cmd = (cmdRaw || "").toLowerCase();
+          // console.log("CMD", cmd, rest);
 
           try {
             if (cmd === "/set-slots" || cmd === "set-slots") {
@@ -507,6 +531,9 @@ export default {
               const text = await whoAmI(ev, env, adminsSet, wantRaw);
               await lineReply(env, replyToken, text);
 
+            } else if (cmd === "/ping" || cmd === "ping") {
+              await handlePing(env, replyToken);
+
             } else {
               await lineReply(env, replyToken, [
                 "Commands:",
@@ -519,6 +546,7 @@ export default {
                 "/copy-slots YYYY-MM-DD YYYY-MM-DD",
                 "/report YYYY-MM",
                 "/whoami (add 'raw' to show full IDs)",
+                "/ping",
               ].join("\n"));
             }
           } catch (e) {
