@@ -86,25 +86,24 @@ const quickActions = () => ({
 
 // ---- Reply with logging (so we can see errors in `wrangler tail`) ----
 const lineReply = async (env: Env, replyToken: string, text: string) => {
-  const res = await fetch("https://api.line.me/v2/bot/message/reply", {
+  // 投げっぱなし（LINE APIの応答はログで拾う）
+  fetch("https://api.line.me/v2/bot/message/reply", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ replyToken, messages: [{ type: "text", text, quickReply: quickActions() }] }),
-  }).catch((e) => {
-    console.log("LINE_REPLY_FAIL_FETCH", String(e));
-    return null as any;
-  });
-
-  if (!res) return;
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.log("LINE_REPLY_FAIL", res.status, body);
-  } else {
-    console.log("LINE_REPLY_OK");
-  }
+  })
+  .then(async (res) => {
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.log("LINE_REPLY_FAIL", res.status, body);
+    } else {
+      console.log("LINE_REPLY_OK");
+    }
+  })
+  .catch((e) => console.log("LINE_REPLY_FAIL_FETCH", String(e)));
 };
 
 const fmtSlots = (date: string, opens: string[]) =>
@@ -451,9 +450,85 @@ async function handlePing(env: Env, replyToken: string) {
   await lineReply(env, replyToken, "pong");
 }
 
+// =============== Event processor (runs inside waitUntil) ===============
+async function processLineEvent(ev: any, env: Env, adminsSet: Set<string>) {
+  const replyToken: string | undefined = ev.replyToken;
+  const messageText: string | undefined = ev.message?.text;
+  const userId: string | undefined = ev.source?.userId;
+  const userName: string | undefined = ev.source?.userId; // real impl: call profile API
+  if (!replyToken || !messageText || !userId) return;
+
+  if (!(await rateLimit(env, userId))) {
+    await lineReply(env, replyToken, "Too many requests. Please wait a bit.");
+    return;
+  }
+
+  const z = messageText.normalize("NFKC").trim();
+  const [cmdRaw, ...rest] = z.split(/\s+/);
+  const cmd = (cmdRaw || "").toLowerCase();
+
+  try {
+    if (cmd === "/set-slots" || cmd === "set-slots") {
+      if (!isAdmin(userId, adminsSet)) { await lineReply(env, replyToken, "🚫 Admin only. Use /whoami raw and add your userId to ADMINS."); return; }
+      await handleSetSlots(env, rest, replyToken);
+
+    } else if (cmd === "/slots"  || cmd === "slots") {
+      await handleSlots(env, rest, replyToken);
+
+    } else if (cmd === "/reserve"|| cmd === "reserve") {
+      await handleReserve(env, z, replyToken, userId, userName);
+
+    } else if (cmd === "/my"     || cmd === "my") {
+      await handleMy(env, rest, replyToken, userId);
+
+    } else if (cmd === "/cancel" || cmd === "cancel") {
+      await handleCancel(env, rest, replyToken, userId);
+
+    } else if (cmd === "/list"   || cmd === "list") {
+      if (!isAdmin(userId, adminsSet)) { await lineReply(env, replyToken, "🚫 Admin only. Use /whoami raw and add your userId to ADMINS."); return; }
+      await handleList(env, rest, replyToken);
+
+    } else if (cmd === "/copy-slots" || cmd === "copy-slots") {
+      if (!isAdmin(userId, adminsSet)) { await lineReply(env, replyToken, "🚫 Admin only. Use /whoami raw and add your userId to ADMINS."); return; }
+      await handleCopySlots(env, rest, replyToken);
+
+    } else if (cmd === "/report" || cmd === "report") {
+      if (!isAdmin(userId, adminsSet)) { await lineReply(env, replyToken, "🚫 Admin only. Use /whoami raw and add your userId to ADMINS."); return; }
+      await handleReport(env, rest, replyToken);
+
+    } else if (cmd === "/whoami" || cmd === "whoami") {
+      const wantRaw = (rest[0]?.toLowerCase() === "raw");
+      const text = await whoAmI(ev, env, adminsSet, wantRaw);
+      await lineReply(env, replyToken, text);
+
+    } else if (cmd === "/ping" || cmd === "ping") {
+      await handlePing(env, replyToken);
+
+    } else {
+      await lineReply(env, replyToken, [
+        "Commands:",
+        "/set-slots YYYY-MM-DD 10:00,11:00,16:30",
+        "/slots YYYY-MM-DD",
+        "/reserve YYYY-MM-DD HH:MM [service]",
+        "/my [YYYY-MM-DD|YYYY-MM]",
+        "/cancel YYYY-MM-DD HH:MM",
+        "/list YYYY-MM-DD | YYYY-MM",
+        "/copy-slots YYYY-MM-DD YYYY-MM-DD",
+        "/report YYYY-MM",
+        "/whoami (add 'raw' to show full IDs)",
+        "/ping",
+      ].join("\n"));
+    }
+  } catch (e) {
+    await notifySlack(env, "WEBHOOK_CMD_FAIL", { cmd, err: (e as any)?.message || String(e) });
+    await lineReply(env, replyToken, "Internal error. Please try again.");
+  }
+}
+
 // =============== Router ===============
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  // ← ExecutionContext を受け取る
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
       const url = new URL(req.url);
 
@@ -466,95 +541,34 @@ export default {
 
       if (url.pathname === "/api/line/webhook" && req.method === "POST") {
         const raw = await req.text();
+
         if (!(await verifyLineSignature(req, env, raw))) {
           console.log("LINE_SIGNATURE_BAD");
           await notifySlack(env, "LINE_SIGNATURE_BAD", { url: req.url });
+          // 401 を返す（LINEは再送してくる）
           return new Response("unauthorized", { status: 401 });
         }
-        const body = JSON.parse(raw || "{}");
-        const events = body.events || [];
 
-        // Build admins set once per request
-        const adminsSet = parseAdmins(env.ADMINS);
-
-        // DEBUG: dump events to logs so you can see userId with `wrangler tail`
-        console.log("LINE_EVENT", JSON.stringify(events));
-
-        for (const ev of events) {
-          const replyToken: string | undefined = ev.replyToken;
-          const messageText: string | undefined = ev.message?.text;
-          const userId: string | undefined = ev.source?.userId;
-          const userName: string | undefined = ev.source?.userId; // real impl: call profile API
-          if (!replyToken || !messageText || !userId) continue;
-
-          if (!(await rateLimit(env, userId))) {
-            await lineReply(env, replyToken, "Too many requests. Please wait a bit.");
-            continue;
-          }
-
-          const z = messageText.normalize("NFKC").trim();
-          const [cmdRaw, ...rest] = z.split(/\s+/);
-          const cmd = (cmdRaw || "").toLowerCase();
-          // console.log("CMD", cmd, rest);
-
+        // 即時200を返すために、処理は waitUntil に投げる
+        ctx.waitUntil((async () => {
           try {
-            if (cmd === "/set-slots" || cmd === "set-slots") {
-              if (!isAdmin(userId, adminsSet)) { await lineReply(env, replyToken, "🚫 Admin only. Use /whoami raw and add your userId to ADMINS."); continue; }
-              await handleSetSlots(env, rest, replyToken);
+            const body = JSON.parse(raw || "{}");
+            const events = body.events || [];
+            const adminsSet = parseAdmins(env.ADMINS);
 
-            } else if (cmd === "/slots"  || cmd === "slots") {
-              await handleSlots(env, rest, replyToken);
+            console.log("LINE_EVENT", JSON.stringify(events));
 
-            } else if (cmd === "/reserve"|| cmd === "reserve") {
-              await handleReserve(env, z, replyToken, userId, userName);
-
-            } else if (cmd === "/my"     || cmd === "my") {
-              await handleMy(env, rest, replyToken, userId);
-
-            } else if (cmd === "/cancel" || cmd === "cancel") {
-              await handleCancel(env, rest, replyToken, userId);
-
-            } else if (cmd === "/list"   || cmd === "list") {
-              if (!isAdmin(userId, adminsSet)) { await lineReply(env, replyToken, "🚫 Admin only. Use /whoami raw and add your userId to ADMINS."); continue; }
-              await handleList(env, rest, replyToken);
-
-            } else if (cmd === "/copy-slots" || cmd === "copy-slots") {
-              if (!isAdmin(userId, adminsSet)) { await lineReply(env, replyToken, "🚫 Admin only. Use /whoami raw and add your userId to ADMINS."); continue; }
-              await handleCopySlots(env, rest, replyToken);
-
-            } else if (cmd === "/report" || cmd === "report") {
-              if (!isAdmin(userId, adminsSet)) { await lineReply(env, replyToken, "🚫 Admin only. Use /whoami raw and add your userId to ADMINS."); continue; }
-              await handleReport(env, rest, replyToken);
-
-            } else if (cmd === "/whoami" || cmd === "whoami") {
-              const wantRaw = (rest[0]?.toLowerCase() === "raw"); // /whoami raw で生ID表示
-              const text = await whoAmI(ev, env, adminsSet, wantRaw);
-              await lineReply(env, replyToken, text);
-
-            } else if (cmd === "/ping" || cmd === "ping") {
-              await handlePing(env, replyToken);
-
-            } else {
-              await lineReply(env, replyToken, [
-                "Commands:",
-                "/set-slots YYYY-MM-DD 10:00,11:00,16:30",
-                "/slots YYYY-MM-DD",
-                "/reserve YYYY-MM-DD HH:MM [service]",
-                "/my [YYYY-MM-DD|YYYY-MM]",
-                "/cancel YYYY-MM-DD HH:MM",
-                "/list YYYY-MM-DD | YYYY-MM",
-                "/copy-slots YYYY-MM-DD YYYY-MM-DD",
-                "/report YYYY-MM",
-                "/whoami (add 'raw' to show full IDs)",
-                "/ping",
-              ].join("\n"));
+            for (const ev of events) {
+              // 各イベント処理も waitUntil チェーンに乗せて並列処理
+              await processLineEvent(ev, env, adminsSet);
             }
           } catch (e) {
-            await notifySlack(env, "WEBHOOK_CMD_FAIL", { cmd, err: (e as any)?.message || String(e) });
-            await lineReply(env, replyToken, "Internal error. Please try again.");
+            await notifySlack(env, "UNCAUGHT_WEBHOOK_TASK", { err: (e as any)?.message || String(e) });
           }
-        }
-        return new Response("OK");
+        })());
+
+        // ここで即レス（LINEの1秒要件を満たす）
+        return new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
       }
 
       if (url.pathname === "/" && req.method === "GET") {
