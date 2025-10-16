@@ -5,7 +5,7 @@ compatibility_date = "2024-10-01"
 workers_dev = true
 minify = true
 
-# ✅ これを追加（ここが超重要）
+# ★ これがないと /accounts 問題が出やすい
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 
 # --- KV（本番とプレビュー） ---
@@ -24,7 +24,7 @@ class_name = "SlotLock"
 tag = "0001"
 new_sqlite_classes = ["SlotLock"]
 
-# ✅ 管理者ID・変数など
+# ✅ 管理者ID（カンマ区切りで複数可）
 [vars]
 BASE_URL = "https://saas-api.hekuijincun.workers.dev"
 ADMINS   = "U929e7fcc7a5ed0c4cbcd0c4c9b001815"
@@ -32,8 +32,6 @@ ADMINS   = "U929e7fcc7a5ed0c4cbcd0c4c9b001815"
 # ===== staging 環境（--env staging） =====
 [env.staging]
 main = "src/index.ts"
-
-# ✅ staging 環境にも明示的に追加
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 
 [[env.staging.kv_namespaces]]
