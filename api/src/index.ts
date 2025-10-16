@@ -162,6 +162,7 @@ function parseReserve(text: string, defaultService = "cut"): Parsed | null {
 }
 
 // =============== Durable Object ===============
+// ※ acquire()/release() が叩くエンドポイントは /acquire /release に統一
 export class SlotLock {
   constructor(private state: DurableObjectState) {}
   async fetch(req: Request): Promise<Response> {
@@ -582,36 +583,3 @@ export default {
     }
   },
 };
-// =============== Durable Object: SlotLock ===============
-export class SlotLock {
-  state: DurableObjectState;
-  env: Env;
-
-  constructor(state: DurableObjectState, env: Env) {
-    this.state = state;
-    this.env = env;
-  }
-
-  // シンプルなロック動作（予約重複防止用）
-  async fetch(request: Request) {
-    const url = new URL(request.url);
-    const op = url.searchParams.get("op") || "ping";
-
-    if (op === "ping") {
-      return new Response("ok");
-    }
-
-    // Lockテスト: set/get
-    if (op === "set") {
-      await this.state.storage.put("locked", true);
-      return new Response("locked");
-    }
-
-    if (op === "get") {
-      const locked = await this.state.storage.get("locked");
-      return new Response(JSON.stringify({ locked }));
-    }
-
-    return new Response("unknown op", { status: 400 });
-  }
-}
