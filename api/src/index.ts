@@ -84,9 +84,8 @@ const quickActions = () => ({
   ],
 });
 
-// ---- Reply with logging (so we can see errors in `wrangler tail`) ----
+// ---- Reply with logging (non-blocking) ----
 const lineReply = async (env: Env, replyToken: string, text: string) => {
-  // 投げっぱなし（LINE APIの応答はログで拾う）
   fetch("https://api.line.me/v2/bot/message/reply", {
     method: "POST",
     headers: {
@@ -119,7 +118,6 @@ async function notifySlack(env: Env, title: string, payload: any) {
 }
 
 // =============== Input normalization ===============
-// times parser: supports "10" or "10:30", space/comma separated
 function parseTimesFlexible(tokens: string[]): string[] {
   const joined = tokens.join(" ").replace(/\s+/g, " ");
   const parts = joined.split(/[ ,]+/).map(s => s.trim()).filter(Boolean);
@@ -527,7 +525,6 @@ async function processLineEvent(ev: any, env: Env, adminsSet: Set<string>) {
 
 // =============== Router ===============
 export default {
-  // ← ExecutionContext を受け取る
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
       const url = new URL(req.url);
@@ -545,11 +542,10 @@ export default {
         if (!(await verifyLineSignature(req, env, raw))) {
           console.log("LINE_SIGNATURE_BAD");
           await notifySlack(env, "LINE_SIGNATURE_BAD", { url: req.url });
-          // 401 を返す（LINEは再送してくる）
           return new Response("unauthorized", { status: 401 });
         }
 
-        // 即時200を返すために、処理は waitUntil に投げる
+        // 即時200を返しつつ、処理は waitUntil に投げる
         ctx.waitUntil((async () => {
           try {
             const body = JSON.parse(raw || "{}");
@@ -559,7 +555,6 @@ export default {
             console.log("LINE_EVENT", JSON.stringify(events));
 
             for (const ev of events) {
-              // 各イベント処理も waitUntil チェーンに乗せて並列処理
               await processLineEvent(ev, env, adminsSet);
             }
           } catch (e) {
@@ -567,7 +562,6 @@ export default {
           }
         })());
 
-        // ここで即レス（LINEの1秒要件を満たす）
         return new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
       }
 
