@@ -5,44 +5,48 @@ compatibility_date = "2024-10-01"
 workers_dev = true
 minify = true
 
-# ★ これがないと /accounts 問題が出やすい
+# これが正しい場所！（kv_namespaces の中じゃない）
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 
 # --- KV（本番とプレビュー） ---
 [[kv_namespaces]]
 binding    = "LINE_BOOKING"
-id         = "22103efd0bd04365a2ec050a24b3dbc4"   # LINE_BOOKING
-preview_id = "03bbf9082957456cb4c18159d6788808"   # LINE_BOOKING_preview
+id         = "22103efd0bd04365a2ec050a24b3dbc4"
+preview_id = "03bbf9082957456cb4c18159d6788808"
 
 # --- Durable Object ---
 [[durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# Free プランは new_sqlite_classes を使う
+# Free プランは new_sqlite_classes を使う（D1じゃないよ）
 [[migrations]]
 tag = "0001"
 new_sqlite_classes = ["SlotLock"]
 
-# ✅ 管理者ID（カンマ区切りで複数可）
+# ✅ 管理者IDなど（必要に応じて）
 [vars]
 BASE_URL = "https://saas-api.hekuijincun.workers.dev"
 ADMINS   = "U929e7fcc7a5ed0c4cbcd0c4c9b001815"
 
-# ===== staging 環境（--env staging） =====
+# ===== staging 環境 =====
 [env.staging]
-main = "src/index.ts"
+# 上の設定を継承。必要なら明示で account_id を再掲してもOK
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
+main = "src/index.ts"
 
+# staging でも同じ KV を使う（別に分けたいなら id を変える）
 [[env.staging.kv_namespaces]]
 binding    = "LINE_BOOKING"
 id         = "22103efd0bd04365a2ec050a24b3dbc4"
 preview_id = "03bbf9082957456cb4c18159d6788808"
 
+# staging にも DO をバインド
 [[env.staging.durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
+# staging 側にも migration を宣言（クラスが存在すると認識させる）
 [[env.staging.migrations]]
 tag = "0001"
 new_sqlite_classes = ["SlotLock"]
