@@ -1,31 +1,27 @@
 name = "saas-api"
 main = "src/index.ts"
 compatibility_date = "2024-10-01"
-compatibility_flags = ["nodejs_compat"]   # ← v4 では node_compat の代わりにこれ
+compatibility_flags = ["nodejs_compat"]
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 
-# === KV ===
 [[kv_namespaces]]
 binding    = "LINE_BOOKING"
 id         = "22103efd0bd04365a2ec050a24b3dbc4"
 preview_id = "03bbf9082957456cb4c18159d6788808"
 
-# === Durable Object ===
 [[durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# Free プラン: SQLite バックの DO を使用
-[[migrations]]
-tag = "0002"
-new_sqlite_classes = ["SlotLock"]
+# 🚫 new_sqlite_classes 削除！
+# [[migrations]]
+# tag = "0002"
+# new_sqlite_classes = ["SlotLock"]
 
-#（任意の環境変数）
 [vars]
 BASE_URL = "https://saas-api.hekuijincun.workers.dev"
 ADMINS   = "U929e7fcc7a5ed0c4cbcd0c4c9b001815"
 
-# ===== staging 環境 =====
 [env.staging]
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 
@@ -38,6 +34,7 @@ preview_id = "03bbf9082957456cb4c18159d6788808"
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-[[env.staging.migrations]]
-tag = "0002"
-new_sqlite_classes = ["SlotLock"]
+# 🚫 staging 側も migration 削除
+# [[env.staging.migrations]]
+# tag = "0002"
+# new_sqlite_classes = ["SlotLock"]
