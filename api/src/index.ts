@@ -1,19 +1,15 @@
-// src/index.ts
-// SaaS booking (no CSV) + signature verification + admin-only commands
-// + RateLimit + /copy-slots + /report + /list YYYY-MM (month)
-// + /whoami works for 1:1 / group / room (+ "raw" to show full IDs)
-// + /ping for connectivity & reply test
-// Webhook: /api/line/webhook
-// Health:  /__health
+// SaaS booking webhook + admin commands
+// Webhook: POST /api/line/webhook
+// Health:  GET  /__health
 
 export interface Env {
   LINE_BOOKING: KVNamespace;
   SLOT_LOCK: DurableObjectNamespace;
-  LINE_CHANNEL_ACCESS_TOKEN: string; // wrangler secret
-  LINE_CHANNEL_SECRET: string;       // required for signature verification
-  ADMINS?: string;                   // "Uxxxx, Uyyyy" or space/、 separated
+  LINE_CHANNEL_ACCESS_TOKEN: string;
+  LINE_CHANNEL_SECRET: string;
+  ADMINS?: string;
   BASE_URL?: string;
-  SLACK_WEBHOOK_URL?: string;        // optional
+  SLACK_WEBHOOK_URL?: string;
 }
 
 const TZ = "Asia/Tokyo";
@@ -29,12 +25,9 @@ const K_SLOTS = (date: string) => `S:${date}`;
 const K_RES   = (date: string, time: string) => `R:${date} ${time}`;
 const K_USER  = (uid: string, date: string, time: string) => `U:${uid}:${date} ${time}`;
 
-// ---- Admin utils (robust) ----
 function parseAdmins(raw?: string): Set<string> {
   if (!raw) return new Set();
-  return new Set(
-    raw.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean)
-  );
+  return new Set(raw.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean));
 }
 function isAdmin(uid: string | undefined, admins: Set<string>) {
   return !!uid && admins.has(uid);
@@ -59,11 +52,10 @@ async function verifyLineSignature(req: Request, env: Env, raw: string): Promise
   const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw));
   const expected = toBase64(mac);
   const expectedUrl = b64url(expected);
-  // Accept both standard Base64 and Base64URL from proxies
   return sig === expected || sig === expectedUrl;
 }
 
-// ---- RateLimit (per uid, fixed TTL to end of window) ----
+// ---- RateLimit (per uid) ----
 async function rateLimit(env: Env, uid: string, limit = 10, windowSec = 60) {
   const now = Math.floor(Date.now() / 1000);
   const windowStart = Math.floor(now / windowSec) * windowSec;
@@ -76,15 +68,15 @@ async function rateLimit(env: Env, uid: string, limit = 10, windowSec = 60) {
 
 const quickActions = () => ({
   items: [
-    { type: "action", action: { type: "message", label: "Show slots",   text: "/slots today" } },
-    { type: "action", action: { type: "message", label: "Reserve",       text: "/reserve 2025-10-05 16:30 cut" } },
-    { type: "action", action: { type: "message", label: "My bookings",   text: "/my" } },
-    { type: "action", action: { type: "message", label: "Cancel",        text: "/cancel 2025-10-05 16:30" } },
-    { type: "action", action: { type: "message", label: "Who am I",      text: "/whoami" } },
+    { type: "action", action: { type: "message", label: "Show slots", text: "/slots today" } },
+    { type: "action", action: { type: "message", label: "Reserve",    text: "/reserve 2025-10-05 16:30 cut" } },
+    { type: "action", action: { type: "message", label: "My bookings", text: "/my" } },
+    { type: "action", action: { type: "message", label: "Cancel",      text: "/cancel 2025-10-05 16:30" } },
+    { type: "action", action: { type: "message", label: "Who am I",    text: "/whoami" } },
   ],
 });
 
-// ---- Reply with logging (non-blocking) ----
+// ---- Reply (non-blocking) ----
 const lineReply = async (env: Env, replyToken: string, text: string) => {
   fetch("https://api.line.me/v2/bot/message/reply", {
     method: "POST",
@@ -94,15 +86,15 @@ const lineReply = async (env: Env, replyToken: string, text: string) => {
     },
     body: JSON.stringify({ replyToken, messages: [{ type: "text", text, quickReply: quickActions() }] }),
   })
-  .then(async (res) => {
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.log("LINE_REPLY_FAIL", res.status, body);
-    } else {
-      console.log("LINE_REPLY_OK");
-    }
-  })
-  .catch((e) => console.log("LINE_REPLY_FAIL_FETCH", String(e)));
+    .then(async (res) => {
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        console.log("LINE_REPLY_FAIL", res.status, body);
+      } else {
+        console.log("LINE_REPLY_OK");
+      }
+    })
+    .catch(e => console.log("LINE_REPLY_FAIL_FETCH", String(e)));
 };
 
 const fmtSlots = (date: string, opens: string[]) =>
@@ -143,14 +135,12 @@ function normalizeDateArg(s: string): string | null {
   if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
   return isYmd(z) ? z : null;
 }
-
 function normalizeMonthArg(s: string): string | null {
   const z = s.normalize("NFKC").trim().replace(/[/.]/g, "-");
   const m = z.match(/^(\d{4})-(\d{1,2})$/);
   if (m) return `${m[1]}-${m[2].padStart(2, "0")}`;
   return isYm(z) ? z : null;
 }
-
 function parseReserve(text: string, defaultService = "cut"): Parsed | null {
   const z = text.normalize("NFKC").replace(/\s+/g, " ").trim();
   const m = z.match(/(?:^\/?reserve\s+)?(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2})(?:\s+(.+))?$/i);
@@ -162,7 +152,6 @@ function parseReserve(text: string, defaultService = "cut"): Parsed | null {
 }
 
 // =============== Durable Object ===============
-// ※ acquire()/release() が叩くエンドポイントは /acquire /release に統一
 export class SlotLock {
   constructor(private state: DurableObjectState) {}
   async fetch(req: Request): Promise<Response> {
@@ -296,50 +285,37 @@ async function handleCancel(env: Env, args: string[], replyToken: string, userId
   return lineReply(env, replyToken, `OK: canceled.\nwhen: ${date} ${time}`);
 }
 
-// =============== Month listing (registered/reserved/free | first free) ===============
-function daysInMonth(y: number, m: number): number {
-  return new Date(y, m, 0).getDate();
-}
+// =============== Month summary ===============
+function daysInMonth(y: number, m: number): number { return new Date(y, m, 0).getDate(); }
 function dayOfWeekLabel(y: number, m: number, d: number): string {
-  const w = new Date(y, m - 1, d).getDay();
-  return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][w];
+  return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][new Date(y, m - 1, d).getDay()];
 }
-
 async function listMonth(env: Env, ym: string, replyToken: string) {
   const [yy, mm] = ym.split("-").map(Number);
-  if (!yy || !mm || mm < 1 || mm > 12) {
-    return lineReply(env, replyToken, "Usage: /list YYYY-MM (ex: /list 2025-10)");
-  }
+  if (!yy || !mm || mm < 1 || mm > 12) return lineReply(env, replyToken, "Usage: /list YYYY-MM (ex: /list 2025-10)");
   const last = daysInMonth(yy, mm);
   const lines: string[] = [];
   const header = `[${ym}] slots summary (registered/reserved/free | -> first open)`;
 
   for (let d = 1; d <= last; d++) {
     const date = `${ym}-${String(d).padStart(2, "0")}`;
-
     const raw = await env.LINE_BOOKING.get(K_SLOTS(date));
     const slots: string[] = raw ? JSON.parse(raw) : [];
-
     const it = await env.LINE_BOOKING.list({ prefix: `R:${date} `, limit: 1000 });
     const taken = new Set(it.keys.map(k => k.name.substring(`R:${date} `.length)));
-
     const total = slots.length;
     const reserved = slots.filter(t => taken.has(t)).length;
     const free = Math.max(total - reserved, 0);
     const firstFree = slots.find(t => !taken.has(t));
-
     const dow = dayOfWeekLabel(yy, mm, d);
     lines.push(`${dow} ${date} | ${total}/${reserved}/${free}${firstFree ? ` | -> ${firstFree}` : ""}`);
   }
-
   return lineReply(env, replyToken, [header, ...lines].join("\n"));
 }
 
-// =============== /list (day or month) ===============
 async function handleList(env: Env, args: string[], replyToken: string) {
   if (args.length < 1) return lineReply(env, replyToken, "Usage: /list YYYY-MM-DD | YYYY-MM");
   const arg = args[0];
-
   const month = normalizeMonthArg(arg);
   if (month) return listMonth(env, month, replyToken);
 
@@ -365,7 +341,6 @@ async function handleList(env: Env, args: string[], replyToken: string) {
   );
 }
 
-// =============== copy slots ===============
 async function handleCopySlots(env: Env, args: string[], replyToken: string) {
   if (args.length < 2) return lineReply(env, replyToken, "Usage: /copy-slots YYYY-MM-DD YYYY-MM-DD");
   const src = normalizeDateArg(args[0]); const dst = normalizeDateArg(args[1]);
@@ -377,7 +352,6 @@ async function handleCopySlots(env: Env, args: string[], replyToken: string) {
   return lineReply(env, replyToken, `OK: copied slots.\n${src} -> ${dst}\n${normalized.join(", ")}`);
 }
 
-// =============== monthly report ===============
 async function handleReport(env: Env, args: string[], replyToken: string) {
   if (args.length < 1) return lineReply(env, replyToken, "Usage: /report YYYY-MM");
   const ymRaw = args[0].normalize("NFKC");
@@ -409,16 +383,14 @@ async function handleReport(env: Env, args: string[], replyToken: string) {
   return lineReply(env, replyToken, [`[report ${ym}] total ${total}`, "-- by day --", days, "-- by service --", svc].join("\n"));
 }
 
-// =============== /whoami (user / group / room + raw) ===============
+// =============== /whoami ===============
 function maskId(s?: string) { return s ? s.slice(0,4) + "..." + s.slice(-4) : "unknown"; }
-
 async function whoAmI(ev: any, env: Env, admins: Set<string>, raw: boolean): Promise<string> {
   const src = ev?.source || {};
   const uid = src.userId as string | undefined;
   const gid = src.groupId as string | undefined;
   const rid = src.roomId  as string | undefined;
 
-  // プロフィール取得（失敗してもOK）
   let prof: any = null;
   try {
     if (uid) {
@@ -444,17 +416,16 @@ async function whoAmI(ev: any, env: Env, admins: Set<string>, raw: boolean): Pro
   return lines.join("\n");
 }
 
-// =============== /ping (connectivity & reply test) ===============
 async function handlePing(env: Env, replyToken: string) {
   await lineReply(env, replyToken, "pong");
 }
 
-// =============== Event processor (runs inside waitUntil) ===============
+// =============== Event processor ===============
 async function processLineEvent(ev: any, env: Env, adminsSet: Set<string>) {
   const replyToken: string | undefined = ev.replyToken;
   const messageText: string | undefined = ev.message?.text;
   const userId: string | undefined = ev.source?.userId;
-  const userName: string | undefined = ev.source?.userId; // real impl: call profile API
+  const userName: string | undefined = ev.source?.userId;
   if (!replyToken || !messageText || !userId) return;
 
   if (!(await rateLimit(env, userId))) {
@@ -530,8 +501,8 @@ export default {
     try {
       const url = new URL(req.url);
 
-      const FEATURES = { monthList: true, flexibleSlots: true, whoami: true } as const;
       if (url.pathname === "/__health") {
+        const FEATURES = { monthList: true, flexibleSlots: true, whoami: true } as const;
         return new Response(JSON.stringify({ ok: true, ts: Date.now(), env: env.BASE_URL || "default", features: FEATURES }), {
           headers: { "content-type": "application/json" }
         });
@@ -539,25 +510,19 @@ export default {
 
       if (url.pathname === "/api/line/webhook" && req.method === "POST") {
         const raw = await req.text();
-
         if (!(await verifyLineSignature(req, env, raw))) {
           console.log("LINE_SIGNATURE_BAD");
           await notifySlack(env, "LINE_SIGNATURE_BAD", { url: req.url });
           return new Response("unauthorized", { status: 401 });
         }
 
-        // 即時200を返しつつ、処理は waitUntil に投げる
         ctx.waitUntil((async () => {
           try {
             const body = JSON.parse(raw || "{}");
             const events = body.events || [];
             const adminsSet = parseAdmins(env.ADMINS);
-
             console.log("LINE_EVENT", JSON.stringify(events));
-
-            for (const ev of events) {
-              await processLineEvent(ev, env, adminsSet);
-            }
+            for (const ev of events) await processLineEvent(ev, env, adminsSet);
           } catch (e) {
             await notifySlack(env, "UNCAUGHT_WEBHOOK_TASK", { err: (e as any)?.message || String(e) });
           }
