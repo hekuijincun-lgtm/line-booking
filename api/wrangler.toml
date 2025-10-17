@@ -1,29 +1,31 @@
 name = "saas-api"
 main = "src/index.ts"
 compatibility_date = "2024-10-01"
-compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+minify = true
+
+# Cloudflare アカウント
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 
+# === KV（本番とプレビュー） ===
 [[kv_namespaces]]
 binding    = "LINE_BOOKING"
 id         = "22103efd0bd04365a2ec050a24b3dbc4"
 preview_id = "03bbf9082957456cb4c18159d6788808"
 
+# === Durable Object バインド ===
 [[durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# 🚫 new_sqlite_classes 削除！
-# [[migrations]]
-# tag = "0002"
-# new_sqlite_classes = ["SlotLock"]
+# ※重要※
+# 既に saas-api-staging 側に SlotLock の DO が作成済みなので、
+# ここには migrations を書きません（再適用で 10074 エラーになるため）
 
-[vars]
-BASE_URL = "https://saas-api.hekuijincun.workers.dev"
-ADMINS   = "U929e7fcc7a5ed0c4cbcd0c4c9b001815"
-
+# ===== staging 環境 =====
 [env.staging]
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
+main = "src/index.ts"
 
 [[env.staging.kv_namespaces]]
 binding    = "LINE_BOOKING"
@@ -34,7 +36,9 @@ preview_id = "03bbf9082957456cb4c18159d6788808"
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# 🚫 staging 側も migration 削除
-# [[env.staging.migrations]]
-# tag = "0002"
-# new_sqlite_classes = ["SlotLock"]
+# ※重要※
+# staging にも migrations は書かない（既存 DO があるため）
+# 必要な環境変数（文字列変数）は vars で指定
+[env.staging.vars]
+BASE_URL = "https://saas-api.hekuijincun.workers.dev"
+ADMINS   = "U929e7fcc7a5ed0c4cbcd0c4c9b001815"
