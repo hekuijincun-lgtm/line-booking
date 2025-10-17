@@ -24,6 +24,13 @@ const isPast = (date: string, time: string) =>
 const isYmd = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 const isYm  = (s: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
 
+// ★ 追加: 古いイベントを捨てるしきい値（ミリ秒）
+const STALE_EVENT_MS = 60_000; // 60秒より古い LINE イベントは無視
+function isStaleEvent(ev: any, now = Date.now(), maxAgeMs = STALE_EVENT_MS) {
+  const ts = Number(ev?.timestamp ?? 0);
+  return !ts || (now - ts > maxAgeMs);
+}
+
 const K_SLOTS = (date: string) => `S:${date}`;
 const K_RES   = (date: string, time: string) => `R:${date} ${time}`;
 const K_USER  = (uid: string, date: string, time: string) => `U:${uid}:${date} ${time}`;
@@ -492,13 +499,23 @@ export default {
           return new Response("unauthorized", { status: 401 });
         }
 
+        // ★ ここを改修：古いイベントはスキップ
         ctx.waitUntil((async () => {
           try {
             const body = JSON.parse(raw || "{}");
             const events = body.events || [];
             const adminsSet = parseAdmins(env.ADMINS);
-            console.log("LINE_EVENT", JSON.stringify(events));
-            for (const ev of events) await processLineEvent(ev, env, adminsSet);
+            const now = Date.now();
+
+            console.log("LINE_EVENT_COUNT", events.length);
+
+            for (const ev of events) {
+              if (isStaleEvent(ev, now)) {
+                console.log("STALE_EVENT_SKIP", ev?.timestamp ?? null);
+                continue;
+              }
+              await processLineEvent(ev, env, adminsSet);
+            }
           } catch (e) {
             await notifySlack(env, "UNCAUGHT_WEBHOOK_TASK", { err: (e as any)?.message || String(e) });
           }
