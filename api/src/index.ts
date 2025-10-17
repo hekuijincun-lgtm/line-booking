@@ -1,20 +1,23 @@
-// SaaS booking webhook + admin commands
-// Webhook: POST /api/line/webhook
-// Health:  GET  /__health
+// SaaS booking Worker
+// - LINE 署名検証
+// - 予約スロット管理（KV）
+// - Durable Object で二重予約防止
+// - 管理者コマンド（/set-slots /list /copy-slots /report）
+// - /whoami /ping など
 
 export interface Env {
   LINE_BOOKING: KVNamespace;
   SLOT_LOCK: DurableObjectNamespace;
-  LINE_CHANNEL_ACCESS_TOKEN: string;
-  LINE_CHANNEL_SECRET: string;
+  LINE_CHANNEL_ACCESS_TOKEN: string; // secret
+  LINE_CHANNEL_SECRET: string;       // secret
   ADMINS?: string;
   BASE_URL?: string;
-  SLACK_WEBHOOK_URL?: string;
+  SLACK_WEBHOOK_URL?: string;        // optional
 }
 
 const TZ = "Asia/Tokyo";
 
-// =============== Helpers ===============
+// ===== Helpers =====
 const nowJST = () => new Date(new Date().toLocaleString("en-US", { timeZone: TZ }));
 const isPast = (date: string, time: string) =>
   new Date(`${date}T${time}:00+09:00`).getTime() < nowJST().getTime();
@@ -25,6 +28,7 @@ const K_SLOTS = (date: string) => `S:${date}`;
 const K_RES   = (date: string, time: string) => `R:${date} ${time}`;
 const K_USER  = (uid: string, date: string, time: string) => `U:${uid}:${date} ${time}`;
 
+// ---- Admin utils ----
 function parseAdmins(raw?: string): Set<string> {
   if (!raw) return new Set();
   return new Set(raw.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean));
@@ -68,11 +72,11 @@ async function rateLimit(env: Env, uid: string, limit = 10, windowSec = 60) {
 
 const quickActions = () => ({
   items: [
-    { type: "action", action: { type: "message", label: "Show slots", text: "/slots today" } },
-    { type: "action", action: { type: "message", label: "Reserve",    text: "/reserve 2025-10-05 16:30 cut" } },
-    { type: "action", action: { type: "message", label: "My bookings", text: "/my" } },
-    { type: "action", action: { type: "message", label: "Cancel",      text: "/cancel 2025-10-05 16:30" } },
-    { type: "action", action: { type: "message", label: "Who am I",    text: "/whoami" } },
+    { type: "action", action: { type: "message", label: "Show slots",   text: "/slots today" } },
+    { type: "action", action: { type: "message", label: "Reserve",       text: "/reserve 2025-10-05 16:30 cut" } },
+    { type: "action", action: { type: "message", label: "My bookings",   text: "/my" } },
+    { type: "action", action: { type: "message", label: "Cancel",        text: "/cancel 2025-10-05 16:30" } },
+    { type: "action", action: { type: "message", label: "Who am I",      text: "/whoami" } },
   ],
 });
 
@@ -86,15 +90,10 @@ const lineReply = async (env: Env, replyToken: string, text: string) => {
     },
     body: JSON.stringify({ replyToken, messages: [{ type: "text", text, quickReply: quickActions() }] }),
   })
-    .then(async (res) => {
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        console.log("LINE_REPLY_FAIL", res.status, body);
-      } else {
-        console.log("LINE_REPLY_OK");
-      }
-    })
-    .catch(e => console.log("LINE_REPLY_FAIL_FETCH", String(e)));
+  .then(async (res) => {
+    if (!res.ok) console.log("LINE_REPLY_FAIL", res.status, await res.text().catch(()=> ""));
+  })
+  .catch((e) => console.log("LINE_REPLY_FAIL_FETCH", String(e)));
 };
 
 const fmtSlots = (date: string, opens: string[]) =>
@@ -109,7 +108,7 @@ async function notifySlack(env: Env, title: string, payload: any) {
     .catch(() => {});
 }
 
-// =============== Input normalization ===============
+// ===== Input normalization =====
 function parseTimesFlexible(tokens: string[]): string[] {
   const joined = tokens.join(" ").replace(/\s+/g, " ");
   const parts = joined.split(/[ ,]+/).map(s => s.trim()).filter(Boolean);
@@ -135,12 +134,14 @@ function normalizeDateArg(s: string): string | null {
   if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
   return isYmd(z) ? z : null;
 }
+
 function normalizeMonthArg(s: string): string | null {
   const z = s.normalize("NFKC").trim().replace(/[/.]/g, "-");
   const m = z.match(/^(\d{4})-(\d{1,2})$/);
   if (m) return `${m[1]}-${m[2].padStart(2, "0")}`;
   return isYm(z) ? z : null;
 }
+
 function parseReserve(text: string, defaultService = "cut"): Parsed | null {
   const z = text.normalize("NFKC").replace(/\s+/g, " ").trim();
   const m = z.match(/(?:^\/?reserve\s+)?(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2})(?:\s+(.+))?$/i);
@@ -151,9 +152,10 @@ function parseReserve(text: string, defaultService = "cut"): Parsed | null {
   return { date, time, service };
 }
 
-// =============== Durable Object ===============
+// ===== Durable Object =====
 export class SlotLock {
   constructor(private state: DurableObjectState) {}
+
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname === "/acquire") {
@@ -179,7 +181,7 @@ async function release(env: Env, key: string) {
   await env.SLOT_LOCK.get(id).fetch("https://lock/release", { method: "POST" }).catch(() => {});
 }
 
-// =============== Handlers ===============
+// ===== Handlers =====
 async function handleSetSlots(env: Env, args: string[], replyToken: string) {
   if (args.length < 2) return lineReply(env, replyToken, "Usage: /set-slots YYYY-MM-DD 10:00,11:00,16:30");
   const date = normalizeDateArg(args[0]);
@@ -194,11 +196,9 @@ async function handleSlots(env: Env, args: string[], replyToken: string) {
   if (args.length < 1) return lineReply(env, replyToken, "Usage: /slots YYYY-MM-DD (ex: /slots today)");
   const date = normalizeDateArg(args[0]);
   if (!date) return lineReply(env, replyToken, "Bad date format (ex: 2025-10-05)");
-
   const slotStr = await env.LINE_BOOKING.get(K_SLOTS(date));
   const slots: string[] = slotStr ? JSON.parse(slotStr) : [];
   if (!slots.length) return lineReply(env, replyToken, `[WARN] no slots defined for ${date}. Use /set-slots first.`);
-
   const reserved = await env.LINE_BOOKING.list({ prefix: `R:${date} ` });
   const taken = new Set(reserved.keys.map(k => k.name.substring(`R:${date} `.length)));
   const opens = slots.filter(t => !taken.has(t));
@@ -210,11 +210,9 @@ async function handleReserve(env: Env, z: string, replyToken: string, userId: st
   if (!p) return lineReply(env, replyToken, "ex) /reserve 2025-10-05 16:30 cut");
   const { date, time, service } = p;
   if (isPast(date, time)) return lineReply(env, replyToken, "Cannot reserve past time.");
-
   const slotStr = await env.LINE_BOOKING.get(K_SLOTS(date));
   const slots: string[] = slotStr ? JSON.parse(slotStr) : [];
   if (!slots.includes(time)) return lineReply(env, replyToken, `Time not in slots. Check with /slots ${date}`);
-
   const key = `${date} ${time}`;
   try {
     await acquire(env, key, 15);
@@ -249,14 +247,12 @@ async function handleMy(env: Env, args: string[], replyToken: string, userId: st
     items.sort((a, b) => (`${a.date} ${a.time}`).localeCompare(`${b.date} ${b.time}`));
     return lineReply(env, replyToken, items.length ? `Your bookings\n${items.map(i => `- ${i.date} ${i.time}`).join("\n")}` : "No upcoming bookings.");
   }
-
   if (isYmd(q)) {
     const prefix = `U:${userId}:${q} `;
     const list = await env.LINE_BOOKING.list({ prefix, limit: 100 });
     const lines = list.keys.map(k => `- ${q} ${k.name.substring(prefix.length)}`);
     return lineReply(env, replyToken, lines.length ? `Your bookings\n${lines.join("\n")}` : "No bookings for that day.");
   }
-
   if (isYm(q)) {
     const prefix = `U:${userId}:${q}-`;
     const list = await env.LINE_BOOKING.list({ prefix, limit: 1000 });
@@ -266,7 +262,6 @@ async function handleMy(env: Env, args: string[], replyToken: string, userId: st
     }).filter(Boolean);
     return lineReply(env, replyToken, lines.length ? `Your bookings (${q})\n${lines.join("\n")}` : "No bookings for that month.");
   }
-
   return lineReply(env, replyToken, "Usage: /my | /my YYYY-MM-DD | /my YYYY-MM");
 }
 
@@ -279,13 +274,12 @@ async function handleCancel(env: Env, args: string[], replyToken: string, userId
   if (!recStr) return lineReply(env, replyToken, "Reservation not found.");
   const rec = JSON.parse(recStr);
   if (rec.userId !== userId) return lineReply(env, replyToken, "This reservation is not yours.");
-
   await env.LINE_BOOKING.delete(K_RES(date, time));
   await env.LINE_BOOKING.delete(K_USER(userId, date, time));
   return lineReply(env, replyToken, `OK: canceled.\nwhen: ${date} ${time}`);
 }
 
-// =============== Month summary ===============
+// ===== Month list/report =====
 function daysInMonth(y: number, m: number): number { return new Date(y, m, 0).getDate(); }
 function dayOfWeekLabel(y: number, m: number, d: number): string {
   return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][new Date(y, m - 1, d).getDay()];
@@ -296,7 +290,6 @@ async function listMonth(env: Env, ym: string, replyToken: string) {
   const last = daysInMonth(yy, mm);
   const lines: string[] = [];
   const header = `[${ym}] slots summary (registered/reserved/free | -> first open)`;
-
   for (let d = 1; d <= last; d++) {
     const date = `${ym}-${String(d).padStart(2, "0")}`;
     const raw = await env.LINE_BOOKING.get(K_SLOTS(date));
@@ -318,23 +311,19 @@ async function handleList(env: Env, args: string[], replyToken: string) {
   const arg = args[0];
   const month = normalizeMonthArg(arg);
   if (month) return listMonth(env, month, replyToken);
-
   const date = normalizeDateArg(arg);
   if (!date) return lineReply(env, replyToken, "Bad date format (ex: 2025-10-05 or 2025-10)");
-
   const prefix = `R:${date} `;
   const it = await env.LINE_BOOKING.list({ prefix, limit: 1000 });
   const rows: { time: string; userId: string; service: string }[] = [];
   for (const k of it.keys) {
-    const v = await env.LINE_BOOKING.get(k.name);
-    if (!v) continue;
+    const v = await env.LINE_BOOKING.get(k.name); if (!v) continue;
     const r = JSON.parse(v);
     rows.push({ time: k.name.substring(prefix.length), userId: r.userId, service: r.service });
   }
   rows.sort((a, b) => a.time.localeCompare(b.time));
   return lineReply(
-    env,
-    replyToken,
+    env, replyToken,
     rows.length
       ? "[bookings of the day]\n" + rows.map(r => `- ${r.time} ${r.service} (${r.userId})`).join("\n")
       : "No bookings for that day."
@@ -357,12 +346,10 @@ async function handleReport(env: Env, args: string[], replyToken: string) {
   const ymRaw = args[0].normalize("NFKC");
   const ym = normalizeMonthArg(ymRaw);
   if (!ym) return lineReply(env, replyToken, "Bad month format (ex: 2025-10)");
-
   const prefix = `R:${ym}-`;
   const it = await env.LINE_BOOKING.list({ prefix, limit: 2000 });
   const dayCount: Record<string, number> = {};
   const byService: Record<string, number> = {};
-
   for (const k of it.keys) {
     const m = /^R:(\d{4}-\d{2}-\d{2})\s(.+)$/.exec(k.name);
     if (!m) continue;
@@ -374,7 +361,6 @@ async function handleReport(env: Env, args: string[], replyToken: string) {
       byService[s] = (byService[s] || 0) + 1;
     } catch {}
   }
-
   const days = Object.entries(dayCount).sort((a,b)=>a[0].localeCompare(b[0]))
                .map(([d,c])=>`- ${d} : ${c}`).join("\n") || "(none)";
   const svc  = Object.entries(byService).sort((a,b)=>b[1]-a[1])
@@ -383,8 +369,9 @@ async function handleReport(env: Env, args: string[], replyToken: string) {
   return lineReply(env, replyToken, [`[report ${ym}] total ${total}`, "-- by day --", days, "-- by service --", svc].join("\n"));
 }
 
-// =============== /whoami ===============
+// ===== whoami / ping =====
 function maskId(s?: string) { return s ? s.slice(0,4) + "..." + s.slice(-4) : "unknown"; }
+
 async function whoAmI(ev: any, env: Env, admins: Set<string>, raw: boolean): Promise<string> {
   const src = ev?.source || {};
   const uid = src.userId as string | undefined;
@@ -420,7 +407,7 @@ async function handlePing(env: Env, replyToken: string) {
   await lineReply(env, replyToken, "pong");
 }
 
-// =============== Event processor ===============
+// ===== Event processor =====
 async function processLineEvent(ev: any, env: Env, adminsSet: Set<string>) {
   const replyToken: string | undefined = ev.replyToken;
   const messageText: string | undefined = ev.message?.text;
@@ -441,39 +428,28 @@ async function processLineEvent(ev: any, env: Env, adminsSet: Set<string>) {
     if (cmd === "/set-slots" || cmd === "set-slots") {
       if (!isAdmin(userId, adminsSet)) { await lineReply(env, replyToken, "🚫 Admin only. Use /whoami raw and add your userId to ADMINS."); return; }
       await handleSetSlots(env, rest, replyToken);
-
-    } else if (cmd === "/slots"  || cmd === "slots") {
+    } else if (cmd === "/slots" || cmd === "slots") {
       await handleSlots(env, rest, replyToken);
-
-    } else if (cmd === "/reserve"|| cmd === "reserve") {
+    } else if (cmd === "/reserve" || cmd === "reserve") {
       await handleReserve(env, z, replyToken, userId, userName);
-
-    } else if (cmd === "/my"     || cmd === "my") {
+    } else if (cmd === "/my" || cmd === "my") {
       await handleMy(env, rest, replyToken, userId);
-
     } else if (cmd === "/cancel" || cmd === "cancel") {
       await handleCancel(env, rest, replyToken, userId);
-
-    } else if (cmd === "/list"   || cmd === "list") {
+    } else if (cmd === "/list" || cmd === "list") {
       if (!isAdmin(userId, adminsSet)) { await lineReply(env, replyToken, "🚫 Admin only. Use /whoami raw and add your userId to ADMINS."); return; }
       await handleList(env, rest, replyToken);
-
     } else if (cmd === "/copy-slots" || cmd === "copy-slots") {
       if (!isAdmin(userId, adminsSet)) { await lineReply(env, replyToken, "🚫 Admin only. Use /whoami raw and add your userId to ADMINS."); return; }
       await handleCopySlots(env, rest, replyToken);
-
     } else if (cmd === "/report" || cmd === "report") {
       if (!isAdmin(userId, adminsSet)) { await lineReply(env, replyToken, "🚫 Admin only. Use /whoami raw and add your userId to ADMINS."); return; }
       await handleReport(env, rest, replyToken);
-
     } else if (cmd === "/whoami" || cmd === "whoami") {
       const wantRaw = (rest[0]?.toLowerCase() === "raw");
-      const text = await whoAmI(ev, env, adminsSet, wantRaw);
-      await lineReply(env, replyToken, text);
-
+      await lineReply(env, replyToken, await whoAmI(ev, env, adminsSet, wantRaw));
     } else if (cmd === "/ping" || cmd === "ping") {
       await handlePing(env, replyToken);
-
     } else {
       await lineReply(env, replyToken, [
         "Commands:",
@@ -495,14 +471,14 @@ async function processLineEvent(ev: any, env: Env, adminsSet: Set<string>) {
   }
 }
 
-// =============== Router ===============
+// ===== Router =====
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
       const url = new URL(req.url);
 
+      const FEATURES = { monthList: true, flexibleSlots: true, whoami: true } as const;
       if (url.pathname === "/__health") {
-        const FEATURES = { monthList: true, flexibleSlots: true, whoami: true } as const;
         return new Response(JSON.stringify({ ok: true, ts: Date.now(), env: env.BASE_URL || "default", features: FEATURES }), {
           headers: { "content-type": "application/json" }
         });
