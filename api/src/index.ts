@@ -506,14 +506,24 @@ export default {
       }
 
       if (url.pathname === "/api/line/webhook" && req.method === "POST") {
+        // ★ 署名前に必ず“到達ログ”を打つ（ここで401/403を返さない）
+        const ua = req.headers.get("user-agent") || "";
+        const sigHeader = req.headers.get("x-line-signature") || "";
+        console.log("HIT /api/line/webhook", "ua=", ua, "sigLen=", sigHeader.length);
+
         const raw = await req.text();
-        if (!(await verifyLineSignature(req, env, raw))) {
+
+        // 署名検証
+        const ok = await verifyLineSignature(req, env, raw);
+        if (!ok) {
           console.log("LINE_SIGNATURE_BAD");
           await notifySlack(env, "LINE_SIGNATURE_BAD", { url: req.url });
-          return new Response("unauthorized", { status: 401 });
+          return new Response("invalid signature", { status: 403 });
+          // ※ 診断中だけ 200 にしてもよい:
+          // return new Response("ok (diag, sig bad)", { status: 200 });
         }
 
-        // ★ 古いイベントはスキップ + 充実ログ
+        // ★ 古いイベントはスキップ + 充実ログ（本処理は waitUntil に逃がす）
         ctx.waitUntil((async () => {
           try {
             const body = JSON.parse(raw || "{}");
@@ -536,6 +546,7 @@ export default {
           }
         })());
 
+        // Webhookは即200返す（返信APIは waitUntil 内で実行）
         return new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
       }
 
