@@ -1,10 +1,9 @@
-// SaaS booking Worker (LINE)
-// - 署名検証 / 到達ログ / 診断用ルート(__health, __diag/push)
+// SaaS booking Worker
+// - LINE 署名検証
 // - 予約スロット管理（KV）
 // - Durable Object で二重予約防止
 // - 管理者コマンド（/set-slots /list /copy-slots /report）
-// - /whoami /ping
-// - レートリミットは KV の TTL 下限(60s)に対応
+// - /whoami /ping など
 
 export interface Env {
   LINE_BOOKING: KVNamespace;
@@ -26,7 +25,7 @@ const isYmd = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 const isYm  = (s: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
 
 // 古いイベントを捨てるしきい値（ミリ秒）
-const STALE_EVENT_MS = 60_000; // 60秒より古い LINE イベントは無視
+const STALE_EVENT_MS = 60_000;
 function isStaleEvent(ev: any, now = Date.now(), maxAgeMs = STALE_EVENT_MS) {
   const ts = Number(ev?.timestamp ?? 0);
   return !ts || (now - ts > maxAgeMs);
@@ -40,11 +39,6 @@ const K_USER  = (uid: string, date: string, time: string) => `U:${uid}:${date} $
 function parseAdmins(raw?: string): Set<string> {
   if (!raw) return new Set();
   return new Set(raw.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean));
-}
-function firstAdmin(raw?: string): string | null {
-  const set = parseAdmins(raw);
-  for (const v of set) return v || null;
-  return null;
 }
 function isAdmin(uid: string | undefined, admins: Set<string>) {
   return !!uid && admins.has(uid);
@@ -73,21 +67,23 @@ async function verifyLineSignature(req: Request, env: Env, raw: string): Promise
 }
 
 // ---- RateLimit (per uid) ----
-// Cloudflare KV の expirationTtl は最小 60 秒。必ず 60s 以上にする。
-// KV 障害時は fail-open（true を返す）でユーザー体験を止めない。
-async function rateLimit(env: Env, uid: string, limit = 10, windowSec = 60) {
-  const MIN_TTL = 60;
+// Cloudflare KV は expirationTtl >= 60 必須。固定 120s で安全に。
+async function rateLimit(env: Env, uid: string, limit = 10) {
+  const SAFE_TTL = 120; // seconds (>=60)
   try {
-    const now = Math.floor(Date.now() / 1000);
-    const win = Math.max(windowSec, MIN_TTL);
-    const bucketKey = `RL:${uid}:${Math.floor(now / win)}`;
-    const ttl = Math.max((Math.floor(now / win) + 1) * win - now, MIN_TTL);
-    const current = parseInt((await env.LINE_BOOKING.get(bucketKey)) || "0", 10) + 1;
-    await env.LINE_BOOKING.put(bucketKey, String(current), { expirationTtl: ttl });
+    const now = new Date();
+    const key = `RL:${uid}:${
+      now.getUTCFullYear()
+    }-${String(now.getUTCMonth()+1).padStart(2,"0")}-${
+      String(now.getUTCDate()).padStart(2,"0")
+    }T${String(now.getUTCHours()).padStart(2,"0")}:${String(now.getUTCMinutes()).padStart(2,"0")}`; // 分バケット
+
+    const current = parseInt((await env.LINE_BOOKING.get(key)) || "0", 10) + 1;
+    await env.LINE_BOOKING.put(key, String(current), { expirationTtl: SAFE_TTL });
     return current <= limit;
   } catch (e) {
     console.log("RATE_LIMIT_KV_ERROR", String(e));
-    return true;
+    return true; // fail-open
   }
 }
 
@@ -101,7 +97,7 @@ const quickActions = () => ({
   ],
 });
 
-// ---- Reply（※同期化して確実に送る） ----
+// ---- Reply
 async function lineReply(env: Env, replyToken: string, text: string): Promise<boolean> {
   try {
     console.log("LINE_REPLY_ATTEMPT", text.slice(0, 60));
@@ -126,33 +122,6 @@ async function lineReply(env: Env, replyToken: string, text: string): Promise<bo
   } catch (e) {
     console.log("LINE_REPLY_FAIL_FETCH", String(e));
     return false;
-  }
-}
-
-// ---- Push (diagnostic) ----
-async function linePush(env: Env, to: string, text: string): Promise<{ ok: boolean; status: number; body?: string }> {
-  try {
-    const r = await fetch("https://api.line.me/v2/bot/message/push", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        to,
-        messages: [{ type: "text", text }],
-      }),
-    });
-    const body = await r.text().catch(() => "");
-    if (!r.ok) {
-      console.log("LINE_PUSH_FAIL", r.status, body);
-      return { ok: false, status: r.status, body };
-    }
-    console.log("LINE_PUSH_OK");
-    return { ok: true, status: r.status };
-  } catch (e: any) {
-    console.log("LINE_PUSH_ERR", String(e?.message || e));
-    return { ok: false, status: 0, body: String(e) };
   }
 }
 
@@ -215,7 +184,6 @@ function parseReserve(text: string, defaultService = "cut"): Parsed | null {
 // ===== Durable Object =====
 export class SlotLock {
   constructor(private state: DurableObjectState) {}
-
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname === "/acquire") {
@@ -472,7 +440,7 @@ async function processLineEvent(ev: any, env: Env, adminsSet: Set<string>) {
   const replyToken: string | undefined = ev.replyToken;
   const messageText: string | undefined = ev.message?.text;
   const userId: string | undefined = ev.source?.userId;
-  const userName: string | undefined = ev.source?.userId; // 必要なら displayName に置換OK
+  const userName: string | undefined = ev.source?.userId;
   if (!replyToken || !messageText || !userId) return;
 
   if (!(await rateLimit(env, userId))) {
@@ -546,17 +514,8 @@ export default {
         });
       }
 
-      // 診断用: ADMINS 先頭ユーザーへ Push 送信
-      if (url.pathname === "/__diag/push" && req.method === "GET") {
-        const to = firstAdmin(env.ADMINS || "");
-        if (!to) return new Response("no ADMINS", { status: 400 });
-        const res = await linePush(env, to, `diag push @ ${new Date().toISOString()}`);
-        if (!res.ok) return new Response(`push fail ${res.status}`, { status: 500 });
-        return new Response("ok");
-      }
-
       if (url.pathname === "/api/line/webhook" && req.method === "POST") {
-        // 到達ログ（署名前）
+        // 到達ログ（ここで 401/403 を返さない）
         const ua = req.headers.get("user-agent") || "";
         const sigHeader = req.headers.get("x-line-signature") || "";
         console.log("HIT /api/line/webhook", "ua=", ua, "sigLen=", sigHeader.length);
@@ -571,7 +530,7 @@ export default {
           return new Response("invalid signature", { status: 403 });
         }
 
-        // 本処理は非同期で実行
+        // 本処理は waitUntil に逃がす（Webhook は即200）
         ctx.waitUntil((async () => {
           try {
             const body = JSON.parse(raw || "{}");
@@ -594,7 +553,6 @@ export default {
           }
         })());
 
-        // Webhookは即200返す（返信APIは waitUntil 内で実行）
         return new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
       }
 
