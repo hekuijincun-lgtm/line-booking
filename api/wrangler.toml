@@ -31,9 +31,7 @@ preview_id = "03bbf9082957456cb4c18159d6788808"
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# ※重要※
-# 既に DO を作成済みのため、migrations は書かない
-# （再適用による 10074 エラー回避）
+# ※重要※ 既に DO を作成済みのため、migrations は書かない（再適用による 10074 回避）
 
 # ======== staging 環境 ========
 [env.staging]
@@ -42,7 +40,7 @@ account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 main = "src/index.ts"
 workers_dev = true
 
-# staging 用の KV/DO バインド（本番と同一リソースを参照する構成）
+# staging 用の KV/DO バインド（本番と同一リソースを参照）
 [[env.staging.kv_namespaces]]
 binding    = "LINE_BOOKING"
 id         = "22103efd0bd04365a2ec050a24b3dbc4"
