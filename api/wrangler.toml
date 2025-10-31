@@ -1,20 +1,12 @@
-# ================================
-# wrangler.toml
-# ================================
-
 name = "saas-api"                  # 本番 Worker 名
 main = "src/index.ts"
 compatibility_date = "2024-10-01"
 workers_dev = true
 minify = true
-
-# Cloudflare アカウント
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 
-# ===== 本番の環境変数（秘密以外） =====
 [vars]
 BASE_URL = "https://saas-api.hekuijincun.workers.dev"
-# 管理者ユーザーID（複数可: カンマ区切り）
 ADMINS   = "U929e7fcc7a5ed0c4cbcd0c4c9b001815"
 
 # === KV（本番とプレビュー共通） ===
@@ -28,7 +20,9 @@ preview_id = "03bbf9082957456cb4c18159d6788808"
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# ======== staging 環境（使うなら） ========
+# ※ DO は既設想定。migrations は追加しない（再適用事故防止のため警告は無視）
+
+# ===== staging 環境 =====
 [env.staging]
 name = "saas-api-staging"
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
