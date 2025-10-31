@@ -1,17 +1,18 @@
-// SaaS booking Worker
-// - LINE 署名検証
+// SaaS booking Worker (copy-paste ready)
+// - LINE 署名検証（到達ログあり）
 // - 予約スロット管理（KV）
 // - Durable Object で二重予約防止
 // - 管理者コマンド（/set-slots /list /copy-slots /report）
-// - /whoami /ping など
-// - 診断ルート: /__health, /__diag/push
+// - /whoami /ping
+// - 診断用: GET /__diag/push （ADMINS先頭にPush送信）
+// - 古いイベントは既定 5 分で捨てる（配送遅延ケア）
 
 export interface Env {
   LINE_BOOKING: KVNamespace;
   SLOT_LOCK: DurableObjectNamespace;
   LINE_CHANNEL_ACCESS_TOKEN: string; // secret
   LINE_CHANNEL_SECRET: string;       // secret
-  ADMINS?: string;
+  ADMINS?: string;                   // "Uxxxxxxxx, Uyyyyyyyy"
   BASE_URL?: string;
   SLACK_WEBHOOK_URL?: string;        // optional
 }
@@ -26,7 +27,7 @@ const isYmd = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 const isYm  = (s: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
 
 // ★ 古いイベントを捨てるしきい値（ミリ秒）
-const STALE_EVENT_MS = 60_000; // 60秒より古い LINE イベントは無視
+const STALE_EVENT_MS = 300_000; // 5分まで許可
 function isStaleEvent(ev: any, now = Date.now(), maxAgeMs = STALE_EVENT_MS) {
   const ts = Number(ev?.timestamp ?? 0);
   return !ts || (now - ts > maxAgeMs);
@@ -88,7 +89,7 @@ const quickActions = () => ({
   ],
 });
 
-// ---- Reply（※同期化して確実に送る） ----
+// ---- Reply（同期化して確実に送る） ----
 async function lineReply(env: Env, replyToken: string, text: string): Promise<boolean> {
   try {
     console.log("LINE_REPLY_ATTEMPT", text.slice(0, 60));
@@ -112,6 +113,33 @@ async function lineReply(env: Env, replyToken: string, text: string): Promise<bo
     return true;
   } catch (e) {
     console.log("LINE_REPLY_FAIL_FETCH", String(e));
+    return false;
+  }
+}
+
+// ---- Push（診断や通知用） ----
+async function linePush(env: Env, to: string, text: string): Promise<boolean> {
+  try {
+    const res = await fetch("https://api.line.me/v2/bot/message/push", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        to,
+        messages: [{ type: "text", text }],
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.log("LINE_PUSH_FAIL", res.status, t);
+      return false;
+    }
+    console.log("LINE_PUSH_OK");
+    return true;
+  } catch (e) {
+    console.log("LINE_PUSH_FAIL_FETCH", String(e));
     return false;
   }
 }
@@ -427,12 +455,97 @@ async function handlePing(env: Env, replyToken: string) {
   await lineReply(env, replyToken, "pong");
 }
 
+// ===== Router =====
+export default {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    try {
+      const url = new URL(req.url);
+
+      // Health-check
+      if (url.pathname === "/__health") {
+        const FEATURES = { monthList: true, flexibleSlots: true, whoami: true } as const;
+        return new Response(JSON.stringify({ ok: true, ts: Date.now(), env: env.BASE_URL || "default", features: FEATURES }), {
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      // 診断: 管理者にPushを送る（トークン＆ADMINS生存確認）
+      if (url.pathname === "/__diag/push" && req.method === "GET") {
+        const admins = Array.from(parseAdmins(env.ADMINS));
+        if (!admins.length) return new Response("no ADMINS", { status: 400 });
+        const ok = await linePush(env, admins[0], `diag push ${new Date().toISOString()}`);
+        return new Response(ok ? "push ok" : "push fail", { status: ok ? 200 : 500 });
+      }
+
+      // LINE Webhook
+      if (url.pathname === "/api/line/webhook" && req.method === "POST") {
+        // 署名前に到達ログ（必ず残す）
+        const ua = req.headers.get("user-agent") || "";
+        const sigHeader = req.headers.get("x-line-signature") || "";
+        console.log("HIT /api/line/webhook", "ua=", ua, "sigLen=", sigHeader.length);
+
+        const raw = await req.text();
+
+        // 署名検証
+        const ok = await verifyLineSignature(req, env, raw);
+        if (!ok) {
+          console.log("LINE_SIGNATURE_BAD");
+          await notifySlack(env, "LINE_SIGNATURE_BAD", { url: req.url });
+          return new Response("invalid signature", { status: 403 });
+        }
+
+        // 本処理は非同期
+        ctx.waitUntil((async () => {
+          try {
+            const body = JSON.parse(raw || "{}");
+            const events = body.events || [];
+            const adminsSet = parseAdmins(env.ADMINS);
+            const now = Date.now();
+
+            console.log("LINE_EVENT_COUNT", events.length);
+
+            for (const ev of events) {
+              const age = now - Number(ev?.timestamp ?? 0);
+              if (isStaleEvent(ev, now)) {
+                console.log("STALE_EVENT_SKIP", ev?.timestamp ?? null, "ageMs=", age);
+                continue;
+              }
+              console.log("LINE_EVENT_TYPE", ev?.type, ev?.message?.type, "ageMs=", age);
+              await processLineEvent(ev, env, adminsSet);
+            }
+          } catch (e) {
+            await notifySlack(env, "UNCAUGHT_WEBHOOK_TASK", { err: (e as any)?.message || String(e) });
+          }
+        })());
+
+        // Webhookは即200返す
+        return new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
+      }
+
+      if (url.pathname === "/" && req.method === "GET") {
+        return new Response("OK / SaaS Booking Worker");
+      }
+
+      return new Response("Not Found", { status: 404 });
+    } catch (e) {
+      await notifySlack(env, "UNCAUGHT_FETCH_ERROR", {
+        url: (req as any)?.url,
+        err: (e as any)?.message || String(e),
+      });
+      return new Response("Internal Server Error", {
+        status: 500,
+        headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+      });
+    }
+  },
+};
+
 // ===== Event processor =====
 async function processLineEvent(ev: any, env: Env, adminsSet: Set<string>) {
   const replyToken: string | undefined = ev.replyToken;
   const messageText: string | undefined = ev.message?.text;
   const userId: string | undefined = ev.source?.userId;
-  const userName: string | undefined = ev.source?.userId; // 必要なら displayName に置換OK
+  const userName: string | undefined = ev.source?.userId; // 必要なら displayName 取得に変更OK
   if (!replyToken || !messageText || !userId) return;
 
   if (!(await rateLimit(env, userId))) {
@@ -492,99 +605,3 @@ async function processLineEvent(ev: any, env: Env, adminsSet: Set<string>) {
     await lineReply(env, replyToken, "Internal error. Please try again.");
   }
 }
-
-// ===== Router（診断ルート＋到達ログつき）=====
-export default {
-  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    try {
-      const url = new URL(req.url);
-      const path = url.pathname.replace(/\/+$/, "");
-
-      const FEATURES = { monthList: true, flexibleSlots: true, whoami: true } as const;
-
-      if (path === "/__health" && req.method === "GET") {
-        return new Response(
-          JSON.stringify({ ok: true, ts: Date.now(), env: env.BASE_URL || "default", features: FEATURES }),
-          { headers: { "content-type": "application/json" } }
-        );
-      }
-
-      // 診断: 管理者へ PUSH（アクセストークン検証）
-      if (path === "/__diag/push" && req.method === "GET") {
-        const admins = (env.ADMINS || "").split(/[,、\s]+/).filter(Boolean);
-        if (!admins.length) return new Response("no ADMINS", { status: 400 });
-
-        const r = await fetch("https://api.line.me/v2/bot/message/push", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            to: admins[0],
-            messages: [{ type: "text", text: `diag push ${new Date().toISOString()}` }],
-          }),
-        });
-        const body = await r.text().catch(() => "");
-        console.log("LINE_PUSH_RESULT", r.status, body);
-        return new Response(r.ok ? "push ok" : `push fail ${r.status}`, { status: r.ok ? 200 : 500 });
-      }
-
-      if (path === "/api/line/webhook" && req.method === "POST") {
-        // ★まず到達ログ（ここで 401/403 は返さない）
-        const ua  = req.headers.get("user-agent") || "";
-        const sig = req.headers.get("x-line-signature") || "";
-        console.log("HIT /api/line/webhook", "ua=", ua, "sigLen=", sig.length);
-
-        const raw = await req.text();
-
-        // 署名検証
-        const ok = await verifyLineSignature(req, env, raw);
-        if (!ok) {
-          console.log("LINE_SIGNATURE_BAD");
-          return new Response("invalid signature", { status: 403 });
-          // 診断モードで通したい場合は上記をコメントアウトし、下行に切替
-          // return new Response("ok (diag, sig bad)", { status: 200 });
-        }
-
-        // ★ 古いイベントはスキップ + 充実ログ（本処理は waitUntil に逃がす）
-        ctx.waitUntil((async () => {
-          try {
-            const body = JSON.parse(raw || "{}");
-            const events = body.events || [];
-            const adminsSet = parseAdmins(env.ADMINS);
-            const now = Date.now();
-
-            console.log("LINE_EVENT_COUNT", events.length);
-
-            for (const ev of events) {
-              if (isStaleEvent(ev, now)) {
-                console.log("STALE_EVENT_SKIP", ev?.timestamp ?? null);
-                continue;
-              }
-              console.log("LINE_EVENT_TYPE", ev?.type, ev?.message?.type);
-              await processLineEvent(ev, env, adminsSet);
-            }
-          } catch (e) {
-            console.log("UNCAUGHT_WEBHOOK_TASK", String(e));
-          }
-        })());
-
-        // Webhookは即200返す（返信APIは waitUntil 内で実行）
-        return new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
-      }
-
-      if (path === "/" && req.method === "GET") {
-        return new Response("OK / SaaS Booking Worker");
-      }
-
-      return new Response("Not Found", { status: 404 });
-    } catch (e) {
-      console.log("UNCAUGHT_FETCH_ERROR", String(e));
-      return new Response("Internal Server Error", {
-        status: 500,
-        headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
-      });
-    }
-  },
-};
