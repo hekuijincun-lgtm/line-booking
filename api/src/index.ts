@@ -1,18 +1,17 @@
-// SaaS booking Worker (copy-paste ready)
-// - LINE 署名検証（到達ログあり）
+// SaaS booking Worker (LINE)
+// - 署名検証 / 到達ログ / 診断用ルート(__health, __diag/push)
 // - 予約スロット管理（KV）
 // - Durable Object で二重予約防止
 // - 管理者コマンド（/set-slots /list /copy-slots /report）
 // - /whoami /ping
-// - 診断用: GET /__diag/push （ADMINS先頭にPush送信）
-// - 古いイベントは既定 5 分で捨てる（配送遅延ケア）
+// - レートリミットは KV の TTL 下限(60s)に対応
 
 export interface Env {
   LINE_BOOKING: KVNamespace;
   SLOT_LOCK: DurableObjectNamespace;
   LINE_CHANNEL_ACCESS_TOKEN: string; // secret
   LINE_CHANNEL_SECRET: string;       // secret
-  ADMINS?: string;                   // "Uxxxxxxxx, Uyyyyyyyy"
+  ADMINS?: string;
   BASE_URL?: string;
   SLACK_WEBHOOK_URL?: string;        // optional
 }
@@ -26,8 +25,8 @@ const isPast = (date: string, time: string) =>
 const isYmd = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 const isYm  = (s: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
 
-// ★ 古いイベントを捨てるしきい値（ミリ秒）
-const STALE_EVENT_MS = 300_000; // 5分まで許可
+// 古いイベントを捨てるしきい値（ミリ秒）
+const STALE_EVENT_MS = 60_000; // 60秒より古い LINE イベントは無視
 function isStaleEvent(ev: any, now = Date.now(), maxAgeMs = STALE_EVENT_MS) {
   const ts = Number(ev?.timestamp ?? 0);
   return !ts || (now - ts > maxAgeMs);
@@ -41,6 +40,11 @@ const K_USER  = (uid: string, date: string, time: string) => `U:${uid}:${date} $
 function parseAdmins(raw?: string): Set<string> {
   if (!raw) return new Set();
   return new Set(raw.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean));
+}
+function firstAdmin(raw?: string): string | null {
+  const set = parseAdmins(raw);
+  for (const v of set) return v || null;
+  return null;
 }
 function isAdmin(uid: string | undefined, admins: Set<string>) {
   return !!uid && admins.has(uid);
@@ -69,14 +73,22 @@ async function verifyLineSignature(req: Request, env: Env, raw: string): Promise
 }
 
 // ---- RateLimit (per uid) ----
+// Cloudflare KV の expirationTtl は最小 60 秒。必ず 60s 以上にする。
+// KV 障害時は fail-open（true を返す）でユーザー体験を止めない。
 async function rateLimit(env: Env, uid: string, limit = 10, windowSec = 60) {
-  const now = Math.floor(Date.now() / 1000);
-  const windowStart = Math.floor(now / windowSec) * windowSec;
-  const ttl = windowStart + windowSec - now;
-  const bucket = `RL:${uid}:${Math.floor(now / windowSec)}`;
-  const current = parseInt((await env.LINE_BOOKING.get(bucket)) || "0", 10) + 1;
-  await env.LINE_BOOKING.put(bucket, String(current), { expirationTtl: Math.max(ttl, 1) });
-  return current <= limit;
+  const MIN_TTL = 60;
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const win = Math.max(windowSec, MIN_TTL);
+    const bucketKey = `RL:${uid}:${Math.floor(now / win)}`;
+    const ttl = Math.max((Math.floor(now / win) + 1) * win - now, MIN_TTL);
+    const current = parseInt((await env.LINE_BOOKING.get(bucketKey)) || "0", 10) + 1;
+    await env.LINE_BOOKING.put(bucketKey, String(current), { expirationTtl: ttl });
+    return current <= limit;
+  } catch (e) {
+    console.log("RATE_LIMIT_KV_ERROR", String(e));
+    return true;
+  }
 }
 
 const quickActions = () => ({
@@ -89,7 +101,7 @@ const quickActions = () => ({
   ],
 });
 
-// ---- Reply（同期化して確実に送る） ----
+// ---- Reply（※同期化して確実に送る） ----
 async function lineReply(env: Env, replyToken: string, text: string): Promise<boolean> {
   try {
     console.log("LINE_REPLY_ATTEMPT", text.slice(0, 60));
@@ -117,10 +129,10 @@ async function lineReply(env: Env, replyToken: string, text: string): Promise<bo
   }
 }
 
-// ---- Push（診断や通知用） ----
-async function linePush(env: Env, to: string, text: string): Promise<boolean> {
+// ---- Push (diagnostic) ----
+async function linePush(env: Env, to: string, text: string): Promise<{ ok: boolean; status: number; body?: string }> {
   try {
-    const res = await fetch("https://api.line.me/v2/bot/message/push", {
+    const r = await fetch("https://api.line.me/v2/bot/message/push", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
@@ -131,16 +143,16 @@ async function linePush(env: Env, to: string, text: string): Promise<boolean> {
         messages: [{ type: "text", text }],
       }),
     });
-    if (!res.ok) {
-      const t = await res.text().catch(() => "");
-      console.log("LINE_PUSH_FAIL", res.status, t);
-      return false;
+    const body = await r.text().catch(() => "");
+    if (!r.ok) {
+      console.log("LINE_PUSH_FAIL", r.status, body);
+      return { ok: false, status: r.status, body };
     }
     console.log("LINE_PUSH_OK");
-    return true;
-  } catch (e) {
-    console.log("LINE_PUSH_FAIL_FETCH", String(e));
-    return false;
+    return { ok: true, status: r.status };
+  } catch (e: any) {
+    console.log("LINE_PUSH_ERR", String(e?.message || e));
+    return { ok: false, status: 0, body: String(e) };
   }
 }
 
@@ -455,97 +467,12 @@ async function handlePing(env: Env, replyToken: string) {
   await lineReply(env, replyToken, "pong");
 }
 
-// ===== Router =====
-export default {
-  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    try {
-      const url = new URL(req.url);
-
-      // Health-check
-      if (url.pathname === "/__health") {
-        const FEATURES = { monthList: true, flexibleSlots: true, whoami: true } as const;
-        return new Response(JSON.stringify({ ok: true, ts: Date.now(), env: env.BASE_URL || "default", features: FEATURES }), {
-          headers: { "content-type": "application/json" }
-        });
-      }
-
-      // 診断: 管理者にPushを送る（トークン＆ADMINS生存確認）
-      if (url.pathname === "/__diag/push" && req.method === "GET") {
-        const admins = Array.from(parseAdmins(env.ADMINS));
-        if (!admins.length) return new Response("no ADMINS", { status: 400 });
-        const ok = await linePush(env, admins[0], `diag push ${new Date().toISOString()}`);
-        return new Response(ok ? "push ok" : "push fail", { status: ok ? 200 : 500 });
-      }
-
-      // LINE Webhook
-      if (url.pathname === "/api/line/webhook" && req.method === "POST") {
-        // 署名前に到達ログ（必ず残す）
-        const ua = req.headers.get("user-agent") || "";
-        const sigHeader = req.headers.get("x-line-signature") || "";
-        console.log("HIT /api/line/webhook", "ua=", ua, "sigLen=", sigHeader.length);
-
-        const raw = await req.text();
-
-        // 署名検証
-        const ok = await verifyLineSignature(req, env, raw);
-        if (!ok) {
-          console.log("LINE_SIGNATURE_BAD");
-          await notifySlack(env, "LINE_SIGNATURE_BAD", { url: req.url });
-          return new Response("invalid signature", { status: 403 });
-        }
-
-        // 本処理は非同期
-        ctx.waitUntil((async () => {
-          try {
-            const body = JSON.parse(raw || "{}");
-            const events = body.events || [];
-            const adminsSet = parseAdmins(env.ADMINS);
-            const now = Date.now();
-
-            console.log("LINE_EVENT_COUNT", events.length);
-
-            for (const ev of events) {
-              const age = now - Number(ev?.timestamp ?? 0);
-              if (isStaleEvent(ev, now)) {
-                console.log("STALE_EVENT_SKIP", ev?.timestamp ?? null, "ageMs=", age);
-                continue;
-              }
-              console.log("LINE_EVENT_TYPE", ev?.type, ev?.message?.type, "ageMs=", age);
-              await processLineEvent(ev, env, adminsSet);
-            }
-          } catch (e) {
-            await notifySlack(env, "UNCAUGHT_WEBHOOK_TASK", { err: (e as any)?.message || String(e) });
-          }
-        })());
-
-        // Webhookは即200返す
-        return new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
-      }
-
-      if (url.pathname === "/" && req.method === "GET") {
-        return new Response("OK / SaaS Booking Worker");
-      }
-
-      return new Response("Not Found", { status: 404 });
-    } catch (e) {
-      await notifySlack(env, "UNCAUGHT_FETCH_ERROR", {
-        url: (req as any)?.url,
-        err: (e as any)?.message || String(e),
-      });
-      return new Response("Internal Server Error", {
-        status: 500,
-        headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
-      });
-    }
-  },
-};
-
 // ===== Event processor =====
 async function processLineEvent(ev: any, env: Env, adminsSet: Set<string>) {
   const replyToken: string | undefined = ev.replyToken;
   const messageText: string | undefined = ev.message?.text;
   const userId: string | undefined = ev.source?.userId;
-  const userName: string | undefined = ev.source?.userId; // 必要なら displayName 取得に変更OK
+  const userName: string | undefined = ev.source?.userId; // 必要なら displayName に置換OK
   if (!replyToken || !messageText || !userId) return;
 
   if (!(await rateLimit(env, userId))) {
@@ -605,3 +532,86 @@ async function processLineEvent(ev: any, env: Env, adminsSet: Set<string>) {
     await lineReply(env, replyToken, "Internal error. Please try again.");
   }
 }
+
+// ===== Router =====
+export default {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    try {
+      const url = new URL(req.url);
+
+      const FEATURES = { monthList: true, flexibleSlots: true, whoami: true } as const;
+      if (url.pathname === "/__health") {
+        return new Response(JSON.stringify({ ok: true, ts: Date.now(), env: env.BASE_URL || "default", features: FEATURES }), {
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      // 診断用: ADMINS 先頭ユーザーへ Push 送信
+      if (url.pathname === "/__diag/push" && req.method === "GET") {
+        const to = firstAdmin(env.ADMINS || "");
+        if (!to) return new Response("no ADMINS", { status: 400 });
+        const res = await linePush(env, to, `diag push @ ${new Date().toISOString()}`);
+        if (!res.ok) return new Response(`push fail ${res.status}`, { status: 500 });
+        return new Response("ok");
+      }
+
+      if (url.pathname === "/api/line/webhook" && req.method === "POST") {
+        // 到達ログ（署名前）
+        const ua = req.headers.get("user-agent") || "";
+        const sigHeader = req.headers.get("x-line-signature") || "";
+        console.log("HIT /api/line/webhook", "ua=", ua, "sigLen=", sigHeader.length);
+
+        const raw = await req.text();
+
+        // 署名検証
+        const ok = await verifyLineSignature(req, env, raw);
+        if (!ok) {
+          console.log("LINE_SIGNATURE_BAD");
+          await notifySlack(env, "LINE_SIGNATURE_BAD", { url: req.url });
+          return new Response("invalid signature", { status: 403 });
+        }
+
+        // 本処理は非同期で実行
+        ctx.waitUntil((async () => {
+          try {
+            const body = JSON.parse(raw || "{}");
+            const events = body.events || [];
+            const adminsSet = parseAdmins(env.ADMINS);
+            const now = Date.now();
+
+            console.log("LINE_EVENT_COUNT", events.length);
+
+            for (const ev of events) {
+              if (isStaleEvent(ev, now)) {
+                console.log("STALE_EVENT_SKIP", ev?.timestamp ?? null);
+                continue;
+              }
+              console.log("LINE_EVENT_TYPE", ev?.type, ev?.message?.type);
+              await processLineEvent(ev, env, adminsSet);
+            }
+          } catch (e) {
+            await notifySlack(env, "UNCAUGHT_WEBHOOK_TASK", { err: (e as any)?.message || String(e) });
+          }
+        })());
+
+        // Webhookは即200返す（返信APIは waitUntil 内で実行）
+        return new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
+      }
+
+      if (url.pathname === "/" && req.method === "GET") {
+        return new Response("OK / SaaS Booking Worker");
+      }
+
+      return new Response("Not Found", { status: 404 });
+    } catch (e) {
+      await notifySlack(env, "UNCAUGHT_FETCH_ERROR", {
+        url: (req as any)?.url,
+        err: (e as any)?.message || String(e),
+      });
+      return new Response("Internal Server Error", {
+        status: 500,
+        headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+      });
+    }
+  },
+};
