@@ -66,33 +66,12 @@ async function verifyLineSignature(req: Request, env: Env, raw: string): Promise
   return sig === expected || sig === expectedUrl;
 }
 
-// ---- RateLimit (per uid) ----
-// Cloudflare KV は expirationTtl >= 60 必須。固定 120s で安全に。
-async function rateLimit(env: Env, uid: string, limit = 10) {
-  const SAFE_TTL = 120; // seconds (>=60)
-  try {
-    const now = new Date();
-    const key = `RL:${uid}:${
-      now.getUTCFullYear()
-    }-${String(now.getUTCMonth()+1).padStart(2,"0")}-${
-      String(now.getUTCDate()).padStart(2,"0")
-    }T${String(now.getUTCHours()).padStart(2,"0")}:${String(now.getUTCMinutes()).padStart(2,"0")}`; // 分バケット
-
-    const current = parseInt((await env.LINE_BOOKING.get(key)) || "0", 10) + 1;
-    await env.LINE_BOOKING.put(key, String(current), { expirationTtl: SAFE_TTL });
-    return current <= limit;
-  } catch (e) {
-    console.log("RATE_LIMIT_KV_ERROR", String(e));
-    return true; // fail-open
-  }
-}
-
 const quickActions = () => ({
   items: [
     { type: "action", action: { type: "message", label: "Show slots",   text: "/slots today" } },
-    { type: "action", action: { type: "message", label: "Reserve",       text: "/reserve 2025-10-05 16:30 cut" } },
+    { type: "action", action: { type: "message", label: "Reserve",       text: "/reserve 2025-11-03 16:30 cut" } },
     { type: "action", action: { type: "message", label: "My bookings",   text: "/my" } },
-    { type: "action", action: { type: "message", label: "Cancel",        text: "/cancel 2025-10-05 16:30" } },
+    { type: "action", action: { type: "message", label: "Cancel",        text: "/cancel 2025-11-03 16:30" } },
     { type: "action", action: { type: "message", label: "Who am I",      text: "/whoami" } },
   ],
 });
@@ -213,7 +192,7 @@ async function release(env: Env, key: string) {
 async function handleSetSlots(env: Env, args: string[], replyToken: string) {
   if (args.length < 2) return await lineReply(env, replyToken, "Usage: /set-slots YYYY-MM-DD 10:00,11:00,16:30");
   const date = normalizeDateArg(args[0]);
-  if (!date) return await lineReply(env, replyToken, "Bad date format (ex: 2025-10-05)");
+  if (!date) return await lineReply(env, replyToken, "Bad date format (ex: 2025-11-03)");
   const times = parseTimesFlexible(args.slice(1));
   if (!times.length) return await lineReply(env, replyToken, "No time specified (ex: 10:00 10:30 11:00)");
   await env.LINE_BOOKING.put(K_SLOTS(date), JSON.stringify(times));
@@ -223,7 +202,7 @@ async function handleSetSlots(env: Env, args: string[], replyToken: string) {
 async function handleSlots(env: Env, args: string[], replyToken: string) {
   if (args.length < 1) return await lineReply(env, replyToken, "Usage: /slots YYYY-MM-DD (ex: /slots today)");
   const date = normalizeDateArg(args[0]);
-  if (!date) return await lineReply(env, replyToken, "Bad date format (ex: 2025-10-05)");
+  if (!date) return await lineReply(env, replyToken, "Bad date format (ex: 2025-11-03)");
   const slotStr = await env.LINE_BOOKING.get(K_SLOTS(date));
   const slots: string[] = slotStr ? JSON.parse(slotStr) : [];
   if (!slots.length) return await lineReply(env, replyToken, `[WARN] no slots defined for ${date}. Use /set-slots first.`);
@@ -235,7 +214,7 @@ async function handleSlots(env: Env, args: string[], replyToken: string) {
 
 async function handleReserve(env: Env, z: string, replyToken: string, userId: string, userName?: string) {
   const p = parseReserve(z, "cut");
-  if (!p) return await lineReply(env, replyToken, "ex) /reserve 2025-10-05 16:30 cut");
+  if (!p) return await lineReply(env, replyToken, "ex) /reserve 2025-11-03 16:30 cut");
   const { date, time, service } = p;
   if (isPast(date, time)) return await lineReply(env, replyToken, "Cannot reserve past time.");
   const slotStr = await env.LINE_BOOKING.get(K_SLOTS(date));
@@ -296,7 +275,7 @@ async function handleMy(env: Env, args: string[], replyToken: string, userId: st
 async function handleCancel(env: Env, args: string[], replyToken: string, userId: string) {
   if (args.length < 2) return await lineReply(env, replyToken, "Usage: /cancel YYYY-MM-DD HH:MM");
   const date = normalizeDateArg(args[0]);
-  if (!date) return await lineReply(env, replyToken, "Bad date format (ex: 2025-10-05)");
+  if (!date) return await lineReply(env, replyToken, "Bad date format (ex: 2025-11-03)");
   const time = args[1].normalize("NFKC");
   const recStr = await env.LINE_BOOKING.get(K_RES(date, time));
   if (!recStr) return await lineReply(env, replyToken, "Reservation not found.");
@@ -314,7 +293,7 @@ function dayOfWeekLabel(y: number, m: number, d: number): string {
 }
 async function listMonth(env: Env, ym: string, replyToken: string) {
   const [yy, mm] = ym.split("-").map(Number);
-  if (!yy || !mm || mm < 1 || mm > 12) return await lineReply(env, replyToken, "Usage: /list YYYY-MM (ex: /list 2025-10)");
+  if (!yy || !mm || mm < 1 || mm > 12) return await lineReply(env, replyToken, "Usage: /list YYYY-MM (ex: /list 2025-11)");
   const last = daysInMonth(yy, mm);
   const lines: string[] = [];
   const header = `[${ym}] slots summary (registered/reserved/free | -> first open)`;
@@ -340,7 +319,7 @@ async function handleList(env: Env, args: string[], replyToken: string) {
   const month = normalizeMonthArg(arg);
   if (month) return await listMonth(env, month, replyToken);
   const date = normalizeDateArg(arg);
-  if (!date) return await lineReply(env, replyToken, "Bad date format (ex: 2025-10-05 or 2025-10)");
+  if (!date) return await lineReply(env, replyToken, "Bad date format (ex: 2025-11-03 or 2025-11)");
   const prefix = `R:${date} `;
   const it = await env.LINE_BOOKING.list({ prefix, limit: 1000 });
   const rows: { time: string; userId: string; service: string }[] = [];
@@ -361,7 +340,7 @@ async function handleList(env: Env, args: string[], replyToken: string) {
 async function handleCopySlots(env: Env, args: string[], replyToken: string) {
   if (args.length < 2) return await lineReply(env, replyToken, "Usage: /copy-slots YYYY-MM-DD YYYY-MM-DD");
   const src = normalizeDateArg(args[0]); const dst = normalizeDateArg(args[1]);
-  if (!src || !dst) return await lineReply(env, replyToken, "Bad date format (ex: 2025-10-05)");
+  if (!src || !dst) return await lineReply(env, replyToken, "Bad date format (ex: 2025-11-03)");
   const s = await env.LINE_BOOKING.get(K_SLOTS(src));
   const slots: string[] = s ? JSON.parse(s) : [];
   const normalized = Array.from(new Set(slots)).sort();
@@ -373,7 +352,7 @@ async function handleReport(env: Env, args: string[], replyToken: string) {
   if (args.length < 1) return await lineReply(env, replyToken, "Usage: /report YYYY-MM");
   const ymRaw = args[0].normalize("NFKC");
   const ym = normalizeMonthArg(ymRaw);
-  if (!ym) return await lineReply(env, replyToken, "Bad month format (ex: 2025-10)");
+  if (!ym) return await lineReply(env, replyToken, "Bad month format (ex: 2025-11)");
   const prefix = `R:${ym}-`;
   const it = await env.LINE_BOOKING.list({ prefix, limit: 2000 });
   const dayCount: Record<string, number> = {};
@@ -442,11 +421,6 @@ async function processLineEvent(ev: any, env: Env, adminsSet: Set<string>) {
   const userId: string | undefined = ev.source?.userId;
   const userName: string | undefined = ev.source?.userId;
   if (!replyToken || !messageText || !userId) return;
-
-  if (!(await rateLimit(env, userId))) {
-    await lineReply(env, replyToken, "Too many requests. Please wait a bit.");
-    return;
-  }
 
   const z = messageText.normalize("NFKC").trim();
   const [cmdRaw, ...rest] = z.split(/\s+/);
