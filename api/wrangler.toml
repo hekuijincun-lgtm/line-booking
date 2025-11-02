@@ -1,4 +1,4 @@
-name = "saas-api"                  # 本番 Worker 名
+name = "saas-api"
 main = "src/index.ts"
 compatibility_date = "2024-10-01"
 workers_dev = true
@@ -7,9 +7,10 @@ account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 
 [vars]
 BASE_URL = "https://saas-api.hekuijincun.workers.dev"
+# 自分の LINE userId（/whoami raw で出た値）
 ADMINS   = "U929e7fcc7a5ed0c4cbcd0c4c9b001815"
 
-# === KV（本番とプレビュー共通） ===
+# === KV バインド ===
 [[kv_namespaces]]
 binding    = "LINE_BOOKING"
 id         = "22103efd0bd04365a2ec050a24b3dbc4"
@@ -20,9 +21,7 @@ preview_id = "03bbf9082957456cb4c18159d6788808"
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# ※ DO は既設想定。migrations は追加しない（再適用事故防止のため警告は無視）
-
-# ===== staging 環境 =====
+# ===== staging 環境（必要なら） =====
 [env.staging]
 name = "saas-api-staging"
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
