@@ -5,32 +5,33 @@ workers_dev = true
 minify = true
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 
-# ★ES Modules 形式で DO を使う前提
+# ES Modules 形式
 [build]
 upload.format = "modules"
 
 [vars]
 BASE_URL = "https://saas-api.hekuijincun.workers.dev"
-# 自分の LINE userId（/whoami raw で出た値）
 ADMINS   = "U929e7fcc7a5ed0c4cbcd0c4c9b001815"
 
-# === KV バインド ===
+# === KV ===
 [[kv_namespaces]]
 binding    = "LINE_BOOKING"
 id         = "22103efd0bd04365a2ec050a24b3dbc4"
 preview_id = "03bbf9082957456cb4c18159d6788808"
 
-# === Durable Object バインド ===
+# === Durable Objects バインド ===
+# ※ 既存 SlotLock は触らない。新クラス SlotLockV2 を使う。
 [[durable_objects.bindings]]
 name = "SLOT_LOCK"
-class_name = "SlotLock"
+class_name = "SlotLockV2"
 
-# ★Freeプラン向け：SQLite バックエンドで DO を作成
+# === Migrations ===
+# Freeプラン要件: new_sqlite_classes を新クラス名で作成
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["SlotLock"]
+new_sqlite_classes = ["SlotLockV2"]
 
-# ===== staging 環境 =====
+# ===== staging =====
 [env.staging]
 name = "saas-api-staging"
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
@@ -48,9 +49,8 @@ preview_id = "03bbf9082957456cb4c18159d6788808"
 
 [[env.staging.durable_objects.bindings]]
 name = "SLOT_LOCK"
-class_name = "SlotLock"
+class_name = "SlotLockV2"
 
-# staging 側も DO を個別に作成（本番とは別 Worker 扱い）
 [[env.staging.migrations]]
 tag = "v1"
-new_sqlite_classes = ["SlotLock"]
+new_sqlite_classes = ["SlotLockV2"]
