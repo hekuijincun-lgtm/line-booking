@@ -5,7 +5,7 @@ workers_dev = true
 minify = true
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 
-# ★これが超重要：ES Modules 形式を明示して service-worker 扱いを回避
+# ★ES Modules 形式で DO を使う前提
 [build]
 upload.format = "modules"
 
@@ -25,17 +25,21 @@ preview_id = "03bbf9082957456cb4c18159d6788808"
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# ★初回必須：この Worker 内の DO を有効化する migration
+# ★Freeプラン向け：SQLite バックエンドで DO を作成
 [[migrations]]
 tag = "v1"
-new_classes = ["SlotLock"]
+new_sqlite_classes = ["SlotLock"]
 
-# ===== staging 環境（必要なら） =====
+# ===== staging 環境 =====
 [env.staging]
 name = "saas-api-staging"
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 main = "src/index.ts"
 workers_dev = true
+
+[env.staging.vars]
+BASE_URL = "https://saas-api-staging.hekuijincun.workers.dev"
+ADMINS   = "U929e7fcc7a5ed0c4cbcd0c4c9b001815"
 
 [[env.staging.kv_namespaces]]
 binding    = "LINE_BOOKING"
@@ -46,6 +50,7 @@ preview_id = "03bbf9082957456cb4c18159d6788808"
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-[env.staging.vars]
-BASE_URL = "https://saas-api-staging.hekuijincun.workers.dev"
-ADMINS   = "U929e7fcc7a5ed0c4cbcd0c4c9b001815"
+# staging 側も DO を個別に作成（本番とは別 Worker 扱い）
+[[env.staging.migrations]]
+tag = "v1"
+new_sqlite_classes = ["SlotLock"]
