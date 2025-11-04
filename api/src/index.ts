@@ -554,3 +554,5 @@ export default {
     }
   },
 };
+// === Durable Object export (for wrangler) ===
+export { SlotLock };
