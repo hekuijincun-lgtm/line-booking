@@ -5,6 +5,10 @@ workers_dev = true
 minify = true
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 
+# ★これが超重要：ES Modules(=modules) 形式を明示
+[build]
+upload.format = "modules"
+
 [vars]
 BASE_URL = "https://saas-api.hekuijincun.workers.dev"
 # 自分の LINE userId（/whoami raw で出た値）
@@ -20,6 +24,11 @@ preview_id = "03bbf9082957456cb4c18159d6788808"
 [[durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLock"
+
+# ★初回必須：現Worker内の DO を有効化する migration
+[[migrations]]
+tag = "v1"
+new_classes = ["SlotLock"]
 
 # ===== staging 環境（必要なら） =====
 [env.staging]
