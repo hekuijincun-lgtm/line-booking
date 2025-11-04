@@ -48,3 +48,12 @@ class_name = "SlotLockV2"
 [[env.staging.migrations]]
 tag = "v1"
 new_sqlite_classes = ["SlotLockV2"]
+# 1) 旧クラス名から新クラス名へリネーム
+[[migrations]]
+tag = "v-rename-slotlock"
+renamed_classes = [{ from = "SlotLock", to = "SlotLockV2" }]
+
+# 2) 無料プラン要件: SQLite バックエンド化
+[[migrations]]
+tag = "v-sqlite"
+new_sqlite_classes = ["SlotLockV2"]
