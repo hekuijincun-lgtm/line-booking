@@ -5,7 +5,7 @@ workers_dev = true
 minify = true
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 
-# ★これが超重要：ES Modules(=modules) 形式を明示
+# ★ ES Modules（modules形式）でビルドする宣言
 [build]
 upload.format = "modules"
 
@@ -25,12 +25,12 @@ preview_id = "03bbf9082957456cb4c18159d6788808"
 name = "SLOT_LOCK"
 class_name = "SlotLock"
 
-# ★初回必須：現Worker内の DO を有効化する migration
+# ★ 本番スクリプト用の DO migration（初回必須）
 [[migrations]]
 tag = "v1"
 new_classes = ["SlotLock"]
 
-# ===== staging 環境（必要なら） =====
+# ===== staging 環境 =====
 [env.staging]
 name = "saas-api-staging"
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
@@ -49,3 +49,8 @@ class_name = "SlotLock"
 [env.staging.vars]
 BASE_URL = "https://saas-api-staging.hekuijincun.workers.dev"
 ADMINS   = "U929e7fcc7a5ed0c4cbcd0c4c9b001815"
+
+# ★ staging スクリプト用の DO migration も別途必要（envごとに別スクリプトだから）
+[[env.staging.migrations]]
+tag = "v1"
+new_classes = ["SlotLock"]
