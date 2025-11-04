@@ -1,11 +1,9 @@
-// src/index.ts — SaaS booking Worker (ESM, 丸コピOK)
+// SaaS booking Worker
 // - LINE 署名検証
 // - 予約スロット管理（KV）
-// - Durable Object で二重予約防止
+// - Durable Object で二重予約防止（SQLite/Free対応: SlotLockV2）
 // - 管理者コマンド（/set-slots /list /copy-slots /report）
-// - /whoami /ping
-// - 診断ログ: HIT / RAW_LEN / SIG_OK / WT_ENTER / LINE_EVENT_COUNT / EVENT_TYPES / EV_SEEN / STALE_EVENT_SKIP / PROCESS_EVENT / LINE_REPLY_OK
-// - 診断エンドポイント: /__health /__diag/admins /__diag/echo
+// - /whoami /ping など
 
 export interface Env {
   LINE_BOOKING: KVNamespace;
@@ -18,7 +16,6 @@ export interface Env {
 }
 
 const TZ = "Asia/Tokyo";
-const STALE_EVENT_MS = 60_000; // 古いイベント捨て
 
 // ===== Helpers =====
 const nowJST = () => new Date(new Date().toLocaleString("en-US", { timeZone: TZ }));
@@ -27,6 +24,8 @@ const isPast = (date: string, time: string) =>
 const isYmd = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 const isYm  = (s: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
 
+// 古いイベントを捨てるしきい値（ミリ秒）
+const STALE_EVENT_MS = 60_000;
 function isStaleEvent(ev: any, now = Date.now(), maxAgeMs = STALE_EVENT_MS) {
   const ts = Number(ev?.timestamp ?? 0);
   return !ts || (now - ts > maxAgeMs);
@@ -45,12 +44,10 @@ function parseAdmins(raw?: string): Set<string> {
     .replace(/\s+/g, " ")
     .trim()
     .replace(/^"+|"+$/g, "");
-  const ids = cleaned.split(/[, ]+/).map((s) => s.trim()).filter(Boolean);
+  const ids = cleaned.split(/[, ]+/).map(s => s.trim()).filter(Boolean);
   return new Set(ids);
 }
-function _normId(s?: string) {
-  return (s || "").replace(/\uFEFF/g, "").replace(/\s+/g, "").trim();
-}
+function _normId(s?: string) { return (s || "").replace(/\uFEFF/g, "").replace(/\s+/g, "").trim(); }
 function isAdmin(uid: string | undefined, admins: Set<string>) {
   if (!uid) return false;
   if (admins.has(uid.trim())) return true;
@@ -65,62 +62,39 @@ function toBase64(ab: ArrayBuffer): string {
   for (let i = 0; i < v.length; i++) s += String.fromCharCode(v[i]);
   return btoa(s);
 }
-function b64url(s: string): string {
-  return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-function b64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-function timingSafeEqualB64(aB64: string, bB64: string): boolean {
-  const a = b64ToBytes(aB64);
-  const b = b64ToBytes(bB64);
-  const len = Math.max(a.length, b.length);
-  let diff = 0;
-  for (let i = 0; i < len; i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
-  return diff === 0 && a.length === b.length;
-}
+function b64url(s: string): string { return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, ""); }
 async function verifyLineSignature(req: Request, env: Env, raw: string): Promise<boolean> {
-  const sigHeader = req.headers.get("x-line-signature") || "";
-  if (!sigHeader || !env.LINE_CHANNEL_SECRET) return false;
-  const key = await crypto.subtle.importKey(
-    "raw", new TextEncoder().encode(env.LINE_CHANNEL_SECRET),
-    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
-  );
+  const sig = req.headers.get("x-line-signature") || "";
+  if (!sig || !env.LINE_CHANNEL_SECRET) return false;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.LINE_CHANNEL_SECRET),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw));
-  const expectedStd = toBase64(mac);
-  const expectedUrl = b64url(expectedStd);
-  // どちらの表現でもOK
-  return sigHeader === expectedStd || sigHeader === expectedUrl || timingSafeEqualB64(expectedStd, sigHeader);
+  const expected = toBase64(mac);
+  const expectedUrl = b64url(expected);
+  return sig === expected || sig === expectedUrl;
 }
 
-// ---- Quick Reply ----
 const quickActions = () => ({
   items: [
-    { type: "action", action: { type: "message", label: "Show slots",   text: "/slots today" } },
-    { type: "action", action: { type: "message", label: "Reserve",       text: "/reserve 2025-11-03 16:30 cut" } },
-    { type: "action", action: { type: "message", label: "My bookings",   text: "/my" } },
-    { type: "action", action: { type: "message", label: "Cancel",        text: "/cancel 2025-11-03 16:30" } },
-    { type: "action", action: { type: "message", label: "Who am I",      text: "/whoami" } },
+    { type: "action", action: { type: "message", label: "Show slots", text: "/slots today" } },
+    { type: "action", action: { type: "message", label: "Reserve",    text: "/reserve 2025-11-03 16:30 cut" } },
+    { type: "action", action: { type: "message", label: "My bookings", text: "/my" } },
+    { type: "action", action: { type: "message", label: "Cancel",      text: "/cancel 2025-11-03 16:30" } },
+    { type: "action", action: { type: "message", label: "Who am I",    text: "/whoami" } },
   ],
 });
 
-// ---- Reply ----
-async function lineReply(env: Env, replyToken: string, textMsg: string): Promise<boolean> {
+// ---- Reply
+async function lineReply(env: Env, replyToken: string, text: string): Promise<boolean> {
   try {
-    console.log("LINE_REPLY_ATTEMPT", textMsg.slice(0, 60));
+    console.log("LINE_REPLY_ATTEMPT", text.slice(0, 60));
     const res = await fetch("https://api.line.me/v2/bot/message/reply", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        replyToken,
-        messages: [{ type: "text", text: textMsg, quickReply: quickActions() }],
-      }),
+      body: JSON.stringify({ replyToken, messages: [{ type: "text", text, quickReply: quickActions() }] }),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -191,8 +165,8 @@ function parseReserve(text: string, defaultService = "cut"): Parsed | null {
   return { date, time, service };
 }
 
-// ===== Durable Object =====
-export class SlotLock {
+// ===== Durable Object (新クラス名: SlotLockV2) =====
+export class SlotLockV2 {
   constructor(private state: DurableObjectState) {}
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -221,7 +195,7 @@ async function release(env: Env, key: string) {
 
 // ===== Handlers =====
 async function handleSetSlots(env: Env, args: string[], replyToken: string) {
-  if (args.length < 2) return await lineReply(env, replyToken, "Usage: /set-slots YYYY-MM-DD 10:00 11:00 16:30");
+  if (args.length < 2) return await lineReply(env, replyToken, "Usage: /set-slots YYYY-MM-DD 10:00,11:00,16:30");
   const date = normalizeDateArg(args[0]);
   if (!date) return await lineReply(env, replyToken, "Bad date format (ex: 2025-11-03)");
   const times = parseTimesFlexible(args.slice(1));
@@ -434,6 +408,9 @@ async function whoAmI(ev: any, env: Env, admins: Set<string>, raw: boolean): Pro
     gid ? `groupId: ${raw ? gid : maskId(gid)}` : undefined,
     rid ? `roomId: ${raw ? rid : maskId(rid)}` : undefined,
     `isAdmin: ${isAdmin(uid, admins) ? "YES" : "NO"}`,
+    `admins.raw: ${env.ADMINS ? env.ADMINS : "(unset)"}`,
+    `admins.count: ${admins.size}`,
+    // prof fields (optional)
     prof?.displayName ? `name: ${prof.displayName}` : undefined,
     prof?.language ? `lang: ${prof.language}` : undefined,
   ].filter(Boolean);
@@ -488,7 +465,7 @@ async function processLineEvent(ev: any, env: Env, adminsSet: Set<string>) {
     } else {
       await lineReply(env, replyToken, [
         "Commands:",
-        "/set-slots YYYY-MM-DD 10:00 11:00 16:30",
+        "/set-slots YYYY-MM-DD 10:00,11:00,16:30",
         "/slots YYYY-MM-DD",
         "/reserve YYYY-MM-DD HH:MM [service]",
         "/my [YYYY-MM-DD|YYYY-MM]",
@@ -509,90 +486,71 @@ async function processLineEvent(ev: any, env: Env, adminsSet: Set<string>) {
 // ===== Router =====
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(req.url);
+    try {
+      const url = new URL(req.url);
 
-    // Diagnostics
-    if (url.pathname === "/__health") {
       const FEATURES = { monthList: true, flexibleSlots: true, whoami: true } as const;
-      return new Response(JSON.stringify({ ok: true, ts: Date.now(), env: env.BASE_URL || "default", features: FEATURES }), {
-        headers: { "content-type": "application/json" }
-      });
-    }
-    if (url.pathname === "/__diag/admins") {
-      const adminsSet = parseAdmins(env.ADMINS);
-      return new Response(JSON.stringify({ raw: env.ADMINS || null, list: Array.from(adminsSet) }), {
-        headers: { "content-type": "application/json" }
-      });
-    }
-    if (url.pathname === "/__diag/echo" && req.method === "POST") {
-      const bodyText = await req.text();
-      return new Response(bodyText || "no-body", { headers: { "content-type": "text/plain; charset=utf-8" } });
-    }
-
-    // LINE webhook
-    if (url.pathname === "/api/line/webhook" && req.method === "POST") {
-      const ua = req.headers.get("user-agent") || "";
-      const sigHeader = req.headers.get("x-line-signature") || "";
-      console.log("HIT /api/line/webhook", "ua=", ua, "sigLen=", sigHeader.length);
-
-      const raw = await req.text();
-      console.log("RAW_LEN", typeof raw === "string" ? raw.length : 0);
-
-      const ok = await verifyLineSignature(req, env, raw);
-      if (!ok) {
-        console.log("LINE_SIGNATURE_BAD");
-        await notifySlack(env, "LINE_SIGNATURE_BAD", { url: req.url });
-        return new Response("invalid signature", { status: 403, headers: { "content-type": "text/plain" } });
+      if (url.pathname === "/__health") {
+        return new Response(JSON.stringify({ ok: true, ts: Date.now(), env: env.BASE_URL || "default", features: FEATURES }), {
+          headers: { "content-type": "application/json" }
+        });
       }
-      console.log("SIG_OK");
 
-      // 本処理は waitUntil に逃がす（Webhook は即200）
-      ctx.waitUntil((async () => {
-        console.log("WT_ENTER");
-        let body: any = {};
-        let events: any[] = [];
-        try {
-          body = JSON.parse(raw || "{}");
-          events = Array.isArray(body.events) ? body.events : [];
-        } catch (e) {
-          console.log("JSON_PARSE_ERR", String(e));
-          console.log("BODY_SNIPPET", (raw || "").slice(0, 200));
-          events = [];
+      if (url.pathname === "/api/line/webhook" && req.method === "POST") {
+        const ua = req.headers.get("user-agent") || "";
+        const sigHeader = req.headers.get("x-line-signature") || "";
+        console.log("HIT /api/line/webhook", "ua=", ua, "sigLen=", sigHeader.length);
+
+        const raw = await req.text();
+
+        // 署名検証
+        const ok = await verifyLineSignature(req, env, raw);
+        if (!ok) {
+          console.log("LINE_SIGNATURE_BAD");
+          await notifySlack(env, "LINE_SIGNATURE_BAD", { url: req.url });
+          return new Response("invalid signature", { status: 403 });
         }
 
-        const adminsSet = parseAdmins(env.ADMINS);
-        const now = Date.now();
+        // 本処理は waitUntil に逃がす（Webhook は即200）
+        ctx.waitUntil((async () => {
+          try {
+            const body = JSON.parse(raw || "{}");
+            const events = body.events || [];
+            const adminsSet = parseAdmins(env.ADMINS);
+            const now = Date.now();
 
-        console.log("LINE_EVENT_COUNT", Array.isArray(events) ? events.length : -1);
-        console.log("EVENT_TYPES", (Array.isArray(events) ? events : []).map((ev: any) => `${ev?.type}/${ev?.message?.type || "-"}`));
+            console.log("LINE_EVENT_COUNT", events.length);
 
-        for (const ev of events) {
-          console.log("EV_SEEN", {
-            ts: ev?.timestamp,
-            type: ev?.type,
-            mtype: ev?.message?.type,
-            text: ev?.message?.text ? String(ev.message.text).slice(0, 60) : null,
-          });
-
-          if (isStaleEvent(ev, now)) {
-            const ts = Number(ev?.timestamp || 0);
-            console.log("STALE_EVENT_SKIP", { now, ts, age: now - ts });
-            continue;
+            for (const ev of events) {
+              if (isStaleEvent(ev, now)) {
+                console.log("STALE_EVENT_SKIP", ev?.timestamp ?? null);
+                continue;
+              }
+              console.log("LINE_EVENT_TYPE", ev?.type, ev?.message?.type);
+              await processLineEvent(ev, env, adminsSet);
+            }
+          } catch (e) {
+            await notifySlack(env, "UNCAUGHT_WEBHOOK_TASK", { err: (e as any)?.message || String(e) });
           }
+        })());
 
-          if (ev?.type === "message" && ev?.message?.type === "text") {
-            await processLineEvent(ev, env, adminsSet);
-          }
-        }
-      })());
+        return new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
+      }
 
-      return new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
+      if (url.pathname === "/" && req.method === "GET") {
+        return new Response("OK / SaaS Booking Worker");
+      }
+
+      return new Response("Not Found", { status: 404 });
+    } catch (e) {
+      await notifySlack(env, "UNCAUGHT_FETCH_ERROR", {
+        url: (req as any)?.url,
+        err: (e as any)?.message || String(e),
+      });
+      return new Response("Internal Server Error", {
+        status: 500,
+        headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+      });
     }
-
-    if (url.pathname === "/" && req.method === "GET") {
-      return new Response("OK / SaaS Booking Worker");
-    }
-
-    return new Response("Not Found", { status: 404 });
   },
 };
