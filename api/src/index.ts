@@ -1,7 +1,7 @@
 // SaaS booking Worker
 // - LINE 署名検証
 // - 予約スロット管理（KV）
-// - Durable Object で二重予約防止（SQLite/Free対応: SlotLockV2）
+// - Durable Object で二重予約防止（SlotLockV2：SQLite）
 // - 管理者コマンド（/set-slots /list /copy-slots /report）
 // - /whoami /ping など
 
@@ -39,15 +39,17 @@ const K_USER  = (uid: string, date: string, time: string) => `U:${uid}:${date} $
 function parseAdmins(raw?: string): Set<string> {
   if (!raw) return new Set();
   const cleaned = raw
-    .replace(/\uFEFF/g, "")
-    .replace(/[，、]/g, ",")
-    .replace(/\s+/g, " ")
+    .replace(/\uFEFF/g, "")       // BOM除去
+    .replace(/[，、]/g, ",")       // 全角→半角カンマ
+    .replace(/\s+/g, " ")         // 連続空白圧縮
     .trim()
-    .replace(/^"+|"+$/g, "");
+    .replace(/^"+|"+$/g, "");     // 余計なクォート
   const ids = cleaned.split(/[, ]+/).map(s => s.trim()).filter(Boolean);
   return new Set(ids);
 }
-function _normId(s?: string) { return (s || "").replace(/\uFEFF/g, "").replace(/\s+/g, "").trim(); }
+function _normId(s?: string) {
+  return (s || "").replace(/\uFEFF/g, "").replace(/\s+/g, "").trim();
+}
 function isAdmin(uid: string | undefined, admins: Set<string>) {
   if (!uid) return false;
   if (admins.has(uid.trim())) return true;
@@ -62,12 +64,16 @@ function toBase64(ab: ArrayBuffer): string {
   for (let i = 0; i < v.length; i++) s += String.fromCharCode(v[i]);
   return btoa(s);
 }
-function b64url(s: string): string { return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, ""); }
+function b64url(s: string): string {
+  return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
 async function verifyLineSignature(req: Request, env: Env, raw: string): Promise<boolean> {
   const sig = req.headers.get("x-line-signature") || "";
   if (!sig || !env.LINE_CHANNEL_SECRET) return false;
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.LINE_CHANNEL_SECRET),
-    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(env.LINE_CHANNEL_SECRET),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
   const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw));
   const expected = toBase64(mac);
   const expectedUrl = b64url(expected);
@@ -76,11 +82,11 @@ async function verifyLineSignature(req: Request, env: Env, raw: string): Promise
 
 const quickActions = () => ({
   items: [
-    { type: "action", action: { type: "message", label: "Show slots", text: "/slots today" } },
-    { type: "action", action: { type: "message", label: "Reserve",    text: "/reserve 2025-11-03 16:30 cut" } },
-    { type: "action", action: { type: "message", label: "My bookings", text: "/my" } },
-    { type: "action", action: { type: "message", label: "Cancel",      text: "/cancel 2025-11-03 16:30" } },
-    { type: "action", action: { type: "message", label: "Who am I",    text: "/whoami" } },
+    { type: "action", action: { type: "message", label: "Show slots",   text: "/slots today" } },
+    { type: "action", action: { type: "message", label: "Reserve",       text: "/reserve 2025-11-03 16:30 cut" } },
+    { type: "action", action: { type: "message", label: "My bookings",   text: "/my" } },
+    { type: "action", action: { type: "message", label: "Cancel",        text: "/cancel 2025-11-03 16:30" } },
+    { type: "action", action: { type: "message", label: "Who am I",      text: "/whoami" } },
   ],
 });
 
@@ -94,7 +100,10 @@ async function lineReply(env: Env, replyToken: string, text: string): Promise<bo
         Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ replyToken, messages: [{ type: "text", text, quickReply: quickActions() }] }),
+      body: JSON.stringify({
+        replyToken,
+        messages: [{ type: "text", text, quickReply: quickActions() }],
+      }),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -165,7 +174,7 @@ function parseReserve(text: string, defaultService = "cut"): Parsed | null {
   return { date, time, service };
 }
 
-// ===== Durable Object (新クラス名: SlotLockV2) =====
+// ===== Durable Object（★クラス名を V2 に） =====
 export class SlotLockV2 {
   constructor(private state: DurableObjectState) {}
   async fetch(req: Request): Promise<Response> {
@@ -410,7 +419,6 @@ async function whoAmI(ev: any, env: Env, admins: Set<string>, raw: boolean): Pro
     `isAdmin: ${isAdmin(uid, admins) ? "YES" : "NO"}`,
     `admins.raw: ${env.ADMINS ? env.ADMINS : "(unset)"}`,
     `admins.count: ${admins.size}`,
-    // prof fields (optional)
     prof?.displayName ? `name: ${prof.displayName}` : undefined,
     prof?.language ? `lang: ${prof.language}` : undefined,
   ].filter(Boolean);
@@ -503,7 +511,6 @@ export default {
 
         const raw = await req.text();
 
-        // 署名検証
         const ok = await verifyLineSignature(req, env, raw);
         if (!ok) {
           console.log("LINE_SIGNATURE_BAD");
@@ -554,5 +561,3 @@ export default {
     }
   },
 };
-// === Durable Object export (for wrangler) ===
-export { SlotLock };
