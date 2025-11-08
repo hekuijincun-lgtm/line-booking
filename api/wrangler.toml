@@ -34,7 +34,7 @@ workers_dev = true
 
 [env.staging.vars]
 BASE_URL = "https://saas-api-staging.hekuijincun.workers.dev"
-ADMINS = "[\"U929e7fcc7a5ed0c4cbcd0c4c9b001815\"]"
+ADMINS = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"U929e7fcc7a5ed0c4cbcd0c4c9b001815\"]"
 
 [[env.staging.kv_namespaces]]
 binding    = "LINE_BOOKING"
@@ -69,4 +69,5 @@ id = "LINE_BOOKING の本番ID"
 [[env.production.durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLockV2"
+
 
