@@ -84,3 +84,16 @@ class_name = "SlotLockV2"
 # （任意）Preview URLs は無効のまま
 preview_urls = false
 
+[env.production]
+name = "saas-api"
+[env.production.vars]
+BASE_URL = "https://saas-api.hekuijincun.workers.dev"
+ADMINS   = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
+
+[[env.production.kv_namespaces]]
+binding = "LINE_BOOKING"
+id = "22103efd0bd04365a2ec050a24b3dbc4"
+
+[[env.production.durable_objects.bindings]]
+name = "SLOT_LOCK"
+class_name = "SlotLockV2"
