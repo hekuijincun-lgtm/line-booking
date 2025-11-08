@@ -55,3 +55,4 @@ jobs:
                  --data "{\"text\":\"❌ staging deploy failed: $GITHUB_REPOSITORY@$GITHUB_SHA\"}" \
                  "$WEBHOOK_URL"; \
           else echo 'skip: no webhook'; fi
+
