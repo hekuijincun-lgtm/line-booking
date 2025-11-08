@@ -1,0 +1,56 @@
+name: Deploy (production)
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref (branch, tag, or commit)"
+        required: false
+        default: ""
+  release:
+    types: [published]
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+        working-directory: api
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: true
+        working-directory: api
+
+      - name: Wrangler deploy (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: npx wrangler deploy --env=production
+        working-directory: api
+
+      - name: Health check (prod)
+        env:
+          BASE_URL: ${{ secrets.BASE_URL_PROD || secrets.BASE_URL }}
+        run: |
+          if [ -n "$BASE_URL" ]; then curl -fsS "$BASE_URL/__health"; else echo 'skip: BASE_URL not set'; fi
+
+      - name: Notify failure (Discord/Slack)
+        if: failure()
+        env:
+          WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$WEBHOOK_URL" ]; then \
+            curl -X POST -H 'Content-type: application/json' \
+                 --data "{\"text\":\"❌ production deploy failed: $GITHUB_REPOSITORY@$GITHUB_SHA\"}" \
+                 "$WEBHOOK_URL"; \
+          else echo 'skip: no webhook'; fi
