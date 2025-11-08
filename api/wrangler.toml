@@ -57,3 +57,15 @@ renamed_classes = [{ from = "SlotLock", to = "SlotLockV2" }]
 [[migrations]]
 tag = "v-sqlite"
 new_sqlite_classes = ["SlotLockV2"]
+
+[env.production.vars]
+BASE_URL = "https://saas-api.hekuijincun.workers.dev"
+ADMINS = "U929e7fcc7a5ed0c4cbdc04c9b00815"
+
+[[env.production.kv_namespaces]]
+binding = "LINE_BOOKING"
+id = "LINE_BOOKING の本番ID"
+
+[[env.production.durable_objects.bindings]]
+name = "SLOT_LOCK"
+class_name = "SlotLockV2"
