@@ -1,7 +1,8 @@
 name = "saas-api"
 main = "src/index.ts"
 compatibility_date = "2024-10-01"
-workers_dev = true
+
+preview_urls = false
 minify = true
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 
@@ -30,8 +31,8 @@ new_sqlite_classes = ["SlotLockV2"]
 name = "saas-api-staging"
 account_id = "0d18eef52ba66f8cddcf260265d14cf4"
 main = "src/index.ts"
-workers_dev = true
 
+preview_urls = false
 [env.staging.vars]
 BASE_URL = "https://saas-api-staging.hekuijincun.workers.dev"
 ADMINS = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"U929e7fcc7a5ed0c4cbcd0c4c9b001815\"]"
@@ -69,5 +70,6 @@ id = "LINE_BOOKING の本番ID"
 [[env.production.durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLockV2"
+
 
 
