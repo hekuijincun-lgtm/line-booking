@@ -27,46 +27,10 @@ tag = "v1"
 new_sqlite_classes = ["SlotLockV2"]
 
 # ===== staging 環境 =====
-[env.staging.vars]
-BASE_URL = "https://saas-api-staging.hekuijincun.workers.dev"
-ADMINS = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
-
-[[env.staging.kv_namespaces]]
-binding    = "LINE_BOOKING"
-id         = "22103efd0bd04365a2ec050a24b3dbc4"
-preview_id = "03bbf9082957456cb4c18159d6788808"
-
-[[env.staging.durable_objects.bindings]]
-name = "SLOT_LOCK"
-class_name = "SlotLockV2"
-
-[[env.staging.migrations]]
-tag = "v1"
-new_sqlite_classes = ["SlotLockV2"]
-# 1) 旧クラス名から新クラス名へリネーム
-[[migrations]]
-tag = "v-rename-slotlock"
-renamed_classes = [{ from = "SlotLock", to = "SlotLockV2" }]
-
-# 2) 無料プラン要件: SQLite バックエンド化
-[[migrations]]
-tag = "v-sqlite"
-new_sqlite_classes = ["SlotLockV2"]
-
-[env.production.vars]
-BASE_URL = "https://saas-api.hekuijincun.workers.dev"
-ADMINS = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
-
-[[env.production.kv_namespaces]]
-binding = "LINE_BOOKING"
-id = "LINE_BOOKING の本番ID"
-
-[[env.production.durable_objects.bindings]]
-name = "SLOT_LOCK"
-class_name = "SlotLockV2"
 
 [env.staging]
 name = "saas-api-staging"
+preview_urls = false
 
 [env.staging.vars]
 BASE_URL = "https://saas-api-staging.hekuijincun.workers.dev"
@@ -74,18 +38,16 @@ ADMINS   = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
 
 [[env.staging.kv_namespaces]]
 binding = "LINE_BOOKING"
-id      = "22103efd0bd04365a2ec050a24b3dbc4"
+id = "22103efd0bd04365a2ec050a24b3dbc4"
 preview_id = "03bbf9082957456cb4c18159d6788808"
 
 [[env.staging.durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLockV2"
 
-# （任意）Preview URLs は無効のまま
-preview_urls = false
-
 [env.production]
 name = "saas-api"
+
 [env.production.vars]
 BASE_URL = "https://saas-api.hekuijincun.workers.dev"
 ADMINS   = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
@@ -97,3 +59,4 @@ id = "22103efd0bd04365a2ec050a24b3dbc4"
 [[env.production.durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLockV2"
+
