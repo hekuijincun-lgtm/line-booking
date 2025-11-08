@@ -4,24 +4,24 @@ on:
     branches: [master, main]
   pull_request:
     branches: [master, main]
+
 jobs:
   ci:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "pnpm"
-        working-directory: api
+          cache: 'pnpm'
 
       - uses: pnpm/action-setup@v4
         with:
           version: 9
           run_install: false
-        working-directory: api
 
       - name: Install deps (frozen)
         run: pnpm install --frozen-lockfile
@@ -38,8 +38,7 @@ jobs:
         working-directory: api
 
       - name: Build
-        run: |
-          if [ -f package.json ]; then pnpm run -s build || echo 'no build script'; fi
+        run: pnpm run -s build || echo 'no build script'
         working-directory: api
 
       - name: Unit tests (optional)
