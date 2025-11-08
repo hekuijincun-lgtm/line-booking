@@ -19,15 +19,9 @@ preview_id = "03bbf9082957456cb4c18159d6788808"
 # === Durable Object バインド（★クラス名を SlotLockV2 に統一） ===
 [[durable_objects.bindings]]
 name = "SLOT_LOCK"
-class_name = "SlotLockV2"
+class_name = "SlotLockV3"
 
 # === マイグレーション（Freeプラン必須: SQLite バックエンド） ===
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["SlotLockV2"]
-
-# ===== staging 環境 =====
-
 [env.staging]
 name = "saas-api-staging"
 preview_urls = false
@@ -43,7 +37,7 @@ preview_id = "03bbf9082957456cb4c18159d6788808"
 
 [[env.staging.durable_objects.bindings]]
 name = "SLOT_LOCK"
-class_name = "SlotLockV2"
+class_name = "SlotLockV3"
 
 [env.production]
 name = "saas-api"
@@ -58,5 +52,9 @@ id = "22103efd0bd04365a2ec050a24b3dbc4"
 
 [[env.production.durable_objects.bindings]]
 name = "SLOT_LOCK"
-class_name = "SlotLockV2"
+class_name = "SlotLockV3"
+
+[[migrations]]
+tag = "v4-slot-lock"        # 新規タグ名（被らなければOK）
+new_sqlite_class = "SlotLockV3"
 
