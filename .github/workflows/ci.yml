@@ -3,14 +3,13 @@ on:
   push: { branches: [master, main] }
   pull_request: { branches: [master, main] }
 
-defaults:
-  run:
-    working-directory: api
-
 jobs:
   ci:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: api
     steps:
       - uses: actions/checkout@v4
 
