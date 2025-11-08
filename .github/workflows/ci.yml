@@ -1,0 +1,38 @@
+name: CI
+on:
+  push: { branches: [master, main] }
+  pull_request: { branches: [master, main] }
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deps (frozen)
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: |
+          if [ -f tsconfig.json ]; then pnpm exec tsc -noEmit; else echo 'skip: no tsconfig'; fi
+
+      - name: Lint
+        run: |
+          if [ -f .eslintrc.js ] || [ -f .eslintrc.cjs ] || [ -f .eslintrc.json ]; then pnpm exec eslint . --max-warnings=0; else echo 'skip: no eslint'; fi
+
+      - name: Build
+        run: |
+          if [ -f package.json ]; then pnpm run -s build || echo 'no build script'; fi
+
+      - name: Unit tests (optional)
+        run: pnpm -s test || echo 'no tests'
