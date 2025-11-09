@@ -181,15 +181,15 @@ export class SlotLockV2 {
     const url = new URL(req.url);
     if (url.pathname === "/acquire") {
       const ttl = parseInt(url.searchParams.get("ttl") || "15", 10);
-      if (await this.state.storage.get("lock"))       return new Response("locked", { status: 423 });
+      if (await this.state.storage.get("lock")) return new Response("locked", { status: 423 });
       await this.state.storage.put("lock", "1", { expirationTtl: ttl });
-            return new Response("ok");
+      return new Response("ok");
     }
     if (url.pathname === "/release") {
       await this.state.storage.delete("lock");
-            return new Response("ok");
+      return new Response("ok");
     }
-          return new Response("not found", { status: 404 });
+    return new Response("not found", { status: 404 });
   }
 }
 async function acquire(env: Env, key: string, ttlSec = 15) {
@@ -499,7 +499,7 @@ export default {
 
       const FEATURES = { monthList: true, flexibleSlots: true, whoami: true } as const;
       if (url.pathname === "/__health") {
-              return new Response(JSON.stringify({ ok: true, ts: Date.now(), env: env.BASE_URL || "default", features: FEATURES }), {
+        return new Response(JSON.stringify({ ok: true, ts: Date.now(), env: env.BASE_URL || "default", features: FEATURES }), {
           headers: { "content-type": "application/json" }
         });
       }
@@ -515,7 +515,7 @@ export default {
         if (!ok) {
           console.log("LINE_SIGNATURE_BAD");
           await notifySlack(env, "LINE_SIGNATURE_BAD", { url: req.url });
-                return new Response("invalid signature", { status: 403 });
+          return new Response("invalid signature", { status: 403 });
         }
 
         // 本処理は waitUntil に逃がす（Webhook は即200）
@@ -541,43 +541,23 @@ export default {
           }
         })());
 
-              return new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
+        return new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
       }
 
       if (url.pathname === "/" && req.method === "GET") {
-              return new Response("OK / SaaS Booking Worker");
+        return new Response("OK / SaaS Booking Worker");
       }
 
-            return new Response("Not Found", { status: 404 });
+      return new Response("Not Found", { status: 404 });
     } catch (e) {
       await notifySlack(env, "UNCAUGHT_FETCH_ERROR", {
         url: (req as any)?.url,
         err: (e as any)?.message || String(e),
       });
-            return new Response("Internal Server Error", {
+      return new Response("Internal Server Error", {
         status: 500,
         headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
       });
     }
   },
 };
-
-async function postSlackMinimal(env: any, text: string) {
-  try {
-    const url = env.SLACK_WEBHOOK_URL;
-    if (!url) return; // 未設定なら黙って無視
-    await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text })
-    });
-  } catch (e) {
-    // ここは投げない（ループ防止）
-  }
-    } catch (e:any) {
-      // 最小の監視: Slackへ投げる
-      await postSlackMinimal(env, `[A-PHASE][ERROR] \${e?.message ?? e}`);
-      return new Response("internal error", { status: 500 });
-    }
-    /* A-PHASE: TRY END */
-}

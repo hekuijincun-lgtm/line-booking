@@ -1,0 +1,28 @@
+name: Daily Smoke
+
+on:
+  schedule:
+    - cron: "0 22 * * *"   # 07:00 JST
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install pnpm
+        run: npm i -g pnpm@9
+      - name: Install deps
+        run: pnpm i
+      - name: Run PowerShell Smoke (local script)
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          pwsh -NoProfile -File ../scripts/ci-smoke.ps1
