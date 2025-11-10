@@ -1,61 +1,21 @@
 name = "saas-api"
 main = "src/index.ts"
-compatibility_date = "2024-10-01"
+compatibility_date = "2024-11-01"   # だいたいでOK（あなたの現状に合わせて）
+# compatibility_flags = ["nodejs_compat"]  # 必要なら
 
-preview_urls = false
-minify = true
-account_id = "0d18eef52ba66f8cddcf260265d14cf4"
+[durable_objects]
+bindings = [
+  { name = "SLOT_LOCK", class_name = "SlotLockV2" }
+]
 
-[vars]
-BASE_URL = "https://saas-api.hekuijincun.workers.dev"
-ADMINS = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
+# --- ここ重要： new_sqlite_classes で DO を「作成」する ---
+[[migrations]]
+tag = "v1-slotlock-sqlite"
+new_sqlite_classes = ["SlotLockV2"]
 
-# === KV バインド ===
-[[kv_namespaces]]
-binding    = "LINE_BOOKING"
-id         = "22103efd0bd04365a2ec050a24b3dbc4"
-preview_id = "03bbf9082957456cb4c18159d6788808"
-
-# === Durable Object バインド（★クラス名を SlotLockV2 に統一） ===
-[[durable_objects.bindings]]
-name = "SLOT_LOCK"
-class_name = "SlotLockV2"
-
-# === マイグレーション（Freeプラン必須: SQLite バックエンド） ===
-
+# （既存の staging/prod セクションはそのままでOK）
 [env.staging]
-name = "saas-api-staging"
-preview_urls = false
-
-[env.staging.vars]
-BASE_URL = "https://saas-api-staging.hekuijincun.workers.dev"
-ADMINS   = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
-
-[[env.staging.kv_namespaces]]
-binding    = "LINE_BOOKING"
-id         = "22103efd0bd04365a2ec050a24b3dbc4"
-preview_id = "03bbf9082957456cb4c18159d6788808"
-
-[[env.staging.durable_objects.bindings]]
-name       = "SLOT_LOCK"
-class_name = "SlotLockV2"
+vars = { BASE_URL = "https://saas-api-staging.hekuijincun.workers.dev", ADMINS = "U929e7fcc7a5ed0c4bcbd0c4c9b001815" }
 
 [env.production]
-name = "saas-api"
-
-[env.production.vars]
-BASE_URL = "https://saas-api.hekuijincun.workers.dev"
-ADMINS   = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
-
-[[env.production.kv_namespaces]]
-binding = "LINE_BOOKING"
-id      = "22103efd0bd04365a2ec050a24b3dbc4"
-
-[[env.production.durable_objects.bindings]]
-name       = "SLOT_LOCK"
-class_name = "SlotLockV2"
-
-# ★これを追加
-[[migrations]]
-tag = "v1-slotlock-sqlite"           # 新しい一意のタグ名（何でもOK、単調増加）
-new_sqlite_classes = ["SlotLockV2"]  # Freeプランで必須の宣言
+vars = { BASE_URL = "https://saas-api.hekuijincun.workers.dev", ADMINS = "U929e7fcc7a5ed0c4bcbd0c4c9b001815" }
