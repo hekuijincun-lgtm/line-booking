@@ -23,7 +23,7 @@ jobs:
           node-version: 20
 
       - name: Install deps (frozen)
-        run: pnpm install --frozen-lockfile
+        run: if exist package.json ( pnpm install --frozen-lockfile ) else ( echo skip install )
 
       - name: Type check
         run: |
@@ -39,3 +39,4 @@ jobs:
 
       - name: Unit tests (optional)
         run: pnpm -s test || echo 'no tests'
+

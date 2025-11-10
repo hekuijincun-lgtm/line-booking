@@ -55,6 +55,6 @@ name = "SLOT_LOCK"
 class_name = "SlotLockV3"
 
 [[migrations]]
-tag = "v4-slot-lock"        # 新規タグ名（被らなければOK）
-new_sqlite_class = "SlotLockV3"
+tag = "v1"
+new_classes = ["SlotLockV3"]
 
