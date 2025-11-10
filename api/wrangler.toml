@@ -55,3 +55,7 @@ id      = "22103efd0bd04365a2ec050a24b3dbc4"
 name       = "SLOT_LOCK"
 class_name = "SlotLockV2"
 
+# ★これを追加
+[[migrations]]
+tag = "v1-slotlock-sqlite"           # 新しい一意のタグ名（何でもOK、単調増加）
+new_sqlite_classes = ["SlotLockV2"]  # Freeプランで必須の宣言
