@@ -175,7 +175,7 @@ function parseReserve(text: string, defaultService = "cut"): Parsed | null {
 }
 
 // ===== Durable Object（★クラス名を V2 に） =====
-export class SlotLockV2 {
+export class SlotLockV3 {
   constructor(private state: DurableObjectState) {}
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -561,4 +561,5 @@ export default {
     }
   },
 };
+
 
