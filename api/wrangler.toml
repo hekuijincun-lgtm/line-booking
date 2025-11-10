@@ -20,3 +20,7 @@ ADMINS   = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
 [env.staging.vars]
 BASE_URL = "https://saas-api-staging.hekuijincun.workers.dev"
 ADMINS   = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
+
+[[migrations]]
+tag = "v1-slotlock-v3"
+new_sqlite_classes = ["SlotLockV3"]
