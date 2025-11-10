@@ -562,4 +562,5 @@ export default {
   },
 };
 
+export { SlotLockV3 as SlotLockV2 };
 

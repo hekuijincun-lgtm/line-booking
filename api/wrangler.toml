@@ -55,6 +55,6 @@ name = "SLOT_LOCK"
 class_name = "SlotLockV3"
 
 [[migrations]]
-tag = "v1"
-new_classes = ["SlotLockV3"]
+tag = "m1-sqlite-init"
+new_sqlite_classes = ["SlotLockV2","SlotLockV3"]
 
