@@ -7,14 +7,8 @@ workers_dev = true
 [vars]
 ENV_NAME = "local-or-default"
 
-# KV（トップレベルに1本置いてもOK）
-[[kv_namespaces]]
-binding = "LINE_BOOKING"
-id = "LINE_BOOKING"
-
-# Durable Object（トップに定義）
+# Durable Object（配列テーブルで定義）
 [durable_objects]
-# bindings は「配列のテーブル」
 [[durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLockV3"
@@ -30,10 +24,9 @@ workers_dev = true
 [env.staging.vars]
 ENV_NAME = "staging"
 
-# ← ★ ここは「配列のテーブル」形式！
 [[env.staging.kv_namespaces]]
 binding = "LINE_BOOKING"
-id = "LINE_BOOKING"
+id = ""
 
 [env.staging.durable_objects]
 [[env.staging.durable_objects.bindings]]
@@ -53,7 +46,7 @@ ENV_NAME = "production"
 
 [[env.production.kv_namespaces]]
 binding = "LINE_BOOKING"
-id = "LINE_BOOKING"
+id = ""
 
 [env.production.durable_objects]
 [[env.production.durable_objects.bindings]]
