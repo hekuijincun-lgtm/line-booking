@@ -28,7 +28,8 @@ ENV_NAME = "staging"
 binding = "LINE_BOOKING"
 id = ""
 
-[env.staging.durable_objects]
+
+preview_id = ""[env.staging.durable_objects]
 [[env.staging.durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLockV3"
@@ -48,13 +49,15 @@ ENV_NAME = "production"
 binding = "LINE_BOOKING"
 id = ""
 
-[env.production.durable_objects]
+
+preview_id = ""[env.production.durable_objects]
 [[env.production.durable_objects.bindings]]
 name = "SLOT_LOCK"
 class_name = "SlotLockV3"
 
 [env.production.observability]
 enabled = true
+
 
 
 
