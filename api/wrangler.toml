@@ -56,3 +56,4 @@ class_name = "SlotLockV3"
 [env.production.observability]
 enabled = true
 
+
