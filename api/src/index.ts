@@ -16,15 +16,7 @@ const app = new Hono();
 
 app.route("/api/public", publicApi);
 
-app.get("/__health", (c: any) => {
-  const runtimeEnv = __resolveEnv(c);
-  return c.json({
-    ok: true,
-    ts: Date.now(),
-    env: runtimeEnv,
-    features: { monthList: true, flexibleSlots: true, whoami: true }
-  });
-});
+
 /** ==== injected(env) ==== */
 const __resolveEnv = (c: any) => {
   const host = c.req?.raw?.headers?.get?.("host") || "";
@@ -40,14 +32,22 @@ app.get("/__env", (c: any) => {
   return c.json({ ok: true, runtimeEnv, ENV_NAME: (c.env as any)?.ENV_NAME ?? null, keys, peek });
 });
 
-`app.get("/__health", (c: any) => {
-  const runtimeEnv = __resolveEnv(c);
-  return c.json({ ok: true, ts: Date.now(), env: __resolveEnv(c), features: { monthList: true, flexibleSlots: true, whoami: true } });
-});
+`
 /** ==== /injected ==== */
+app.get("/__health", (c: any) => {
+  const runtimeEnv = __resolveEnv(c);
+  return c.json({
+    ok: true,
+    ts: Date.now(),
+    env: runtimeEnv,
+    features: { monthList: true, flexibleSlots: true, whoami: true }
+  });
+});
+
 
 
 export default app;
+
 
 
 
