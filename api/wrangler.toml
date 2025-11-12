@@ -26,7 +26,7 @@ ENV_NAME = "staging"
 
 [[env.staging.kv_namespaces]]
 binding = "LINE_BOOKING"
-id = "<ここにstagingの32桁hex>"
+id = ""
 
 
 
@@ -50,7 +50,7 @@ ENV_NAME = "production"
 
 [[env.production.kv_namespaces]]
 binding = "LINE_BOOKING"
-id = "<ここにproductionの32桁hex>"
+id = ""
 
 
 
@@ -63,6 +63,7 @@ class_name = "SlotLockV3"
 
 [env.production.observability]
 enabled = true
+
 
 
 
