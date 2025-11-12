@@ -32,8 +32,11 @@ app.get("/__env", (c: any) => {
   return c.json({ ok: true, runtimeEnv, ENV_NAME: (c.env as any)?.ENV_NAME ?? null, keys, peek });
 });
 
-`
-/** ==== /injected ==== */
+// ` (auto-sanitized)
+/** ==== /injected ==== */
+
+
+
 app.get("/__health", (c: any) => {
   const runtimeEnv = __resolveEnv(c);
   return c.json({
