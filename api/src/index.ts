@@ -22,8 +22,30 @@ app.get("/__health", (c) => {
   const FEATURES = { monthList: true, flexibleSlots: true, whoami: true } as const;
   return c.json({ ok: true, ts: Date.now(), env: base, features: FEATURES });
 });
+/** ==== injected(env) ==== */
+const __resolveEnv = (c: any) => {
+  const host = c.req?.raw?.headers?.get?.("host") || "";
+  const v = (c.env?.ENV_NAME ?? c.env?.EnvName ?? c.env?.env_name);
+  return v ?? (host.includes("-staging-") ? "staging" : "production");
+};
+
+app.get("/__env", (c: any) => {
+  const runtimeEnv = __resolveEnv(c);
+  const keys = Object.keys(c.env || {}).sort();
+  const peek: Record<string,string> = {};
+  for (const k of keys) if (typeof (c.env as any)[k] === "string") peek[k] = (c.env as any)[k];
+  return c.json({ ok: true, runtimeEnv, ENV_NAME: (c.env as any)?.ENV_NAME ?? null, keys, peek });
+});
+
+app.get("/__health", (c: any) => {
+  const runtimeEnv = __resolveEnv(c);
+  return c.json({ ok: true, ts: Date.now(), env: runtimeEnv, features: { monthList: true, flexibleSlots: true, whoami: true } });
+});
+/** ==== /injected ==== */
+
 
 export default app;
+
 
 
 
