@@ -7,7 +7,6 @@ workers_dev = true
 [vars]
 ENV_NAME = "local-or-default"
 
-# Durable Object（配列テーブルで定義）
 [durable_objects]
 [[durable_objects.bindings]]
 name = "SLOT_LOCK"
@@ -24,14 +23,11 @@ workers_dev = true
 [env.staging.vars]
 ENV_NAME = "staging"
 
+# ※ kv_namespaces は「配列のテーブル」記法
 [[env.staging.kv_namespaces]]
 binding = "LINE_BOOKING"
-id = ""
+id = ""   # ← 後で入れてOK。今は空のままでもデプロイ可能
 
-
-
-preview_id = ""
-preview_id = 
 [env.staging.durable_objects]
 [[env.staging.durable_objects.bindings]]
 name = "SLOT_LOCK"
@@ -50,12 +46,8 @@ ENV_NAME = "production"
 
 [[env.production.kv_namespaces]]
 binding = "LINE_BOOKING"
-id = ""
+id = ""   # ← 後で入れてOK。今は空のままでもデプロイ可能
 
-
-
-preview_id = ""
-preview_id = 
 [env.production.durable_objects]
 [[env.production.durable_objects.bindings]]
 name = "SLOT_LOCK"
@@ -64,9 +56,7 @@ class_name = "SlotLockV3"
 [env.production.observability]
 enabled = true
 
-
-
-
-
-
-
+# （任意）Warning消したければ DO migrations を追加
+[[migrations]]
+tag = "v1"
+new_classes = ["SlotLockV3"]
