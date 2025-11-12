@@ -33,7 +33,7 @@ app.get("/__env", (c: any) => {
 });
 
 `
-/** ==== /injected ==== */
+/** ==== /injected ==== */
 app.get("/__health", (c: any) => {
   const runtimeEnv = __resolveEnv(c);
   return c.json({
@@ -46,7 +46,10 @@ app.get("/__health", (c: any) => {
 
 
 
+
+
 export default app;
+
 
 
 
