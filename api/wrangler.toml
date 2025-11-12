@@ -2,54 +2,63 @@ name = "saas-api"
 main = "src/index.ts"
 compatibility_date = "2024-11-01"
 compatibility_flags = []
-
 workers_dev = true
 
 [vars]
 ENV_NAME = "local-or-default"
 
+# KV（トップレベルに1本置いてもOK）
 [[kv_namespaces]]
 binding = "LINE_BOOKING"
-id = "LINE_BOOKING"            # 本番/ステージングで wrangler 側バインド済みを使用
+id = "LINE_BOOKING"
 
+# Durable Object（トップに定義）
 [durable_objects]
-bindings = [
-  { name = "SLOT_LOCK", class_name = "SlotLockV3" }
-]
+# bindings は「配列のテーブル」
+[[durable_objects.bindings]]
+name = "SLOT_LOCK"
+class_name = "SlotLockV3"
 
 [observability]
 enabled = true
 
+# ---------- STAGING ----------
 [env.staging]
 name = "saas-api-staging-v4"
-route = ""
 workers_dev = true
+
 [env.staging.vars]
 ENV_NAME = "staging"
-[env.staging.kv_namespaces]
-bindings = [
-  { binding = "LINE_BOOKING", id = "LINE_BOOKING" }
-]
+
+# ← ★ ここは「配列のテーブル」形式！
+[[env.staging.kv_namespaces]]
+binding = "LINE_BOOKING"
+id = "LINE_BOOKING"
+
 [env.staging.durable_objects]
-bindings = [
-  { name = "SLOT_LOCK", class_name = "SlotLockV3" }
-]
+[[env.staging.durable_objects.bindings]]
+name = "SLOT_LOCK"
+class_name = "SlotLockV3"
+
 [env.staging.observability]
 enabled = true
 
+# ---------- PRODUCTION ----------
 [env.production]
 name = "saas-api-v4"
-route = ""
 workers_dev = true
+
 [env.production.vars]
 ENV_NAME = "production"
-[env.production.kv_namespaces]
-bindings = [
-  { binding = "LINE_BOOKING", id = "LINE_BOOKING" }
-]
+
+[[env.production.kv_namespaces]]
+binding = "LINE_BOOKING"
+id = "LINE_BOOKING"
+
 [env.production.durable_objects]
-bindings = [
-  { name = "SLOT_LOCK", class_name = "SlotLockV3" }
-]
+[[env.production.durable_objects.bindings]]
+name = "SLOT_LOCK"
+class_name = "SlotLockV3"
+
 [env.production.observability]
 enabled = true
