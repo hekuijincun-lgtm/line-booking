@@ -26,7 +26,7 @@ ENV_NAME = "staging"
 # ※ kv_namespaces は「配列のテーブル」記法
 [[env.staging.kv_namespaces]]
 binding = "LINE_BOOKING"
-id = "b79b8cf60453429097de6c6c85f8c229"   # ← 後で入れてOK。今は空のままでもデプロイ可能
+id = ""   # ← 後で入れてOK。今は空のままでもデプロイ可能
 
 [env.staging.durable_objects]
 [[env.staging.durable_objects.bindings]]
@@ -61,4 +61,5 @@ enabled = true
 [[migrations]]
 tag = "v1"
 new_classes = ["SlotLockV3"]
+
 
