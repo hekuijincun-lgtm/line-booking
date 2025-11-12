@@ -16,11 +16,14 @@ const app = new Hono();
 
 app.route("/api/public", publicApi);
 
-app.get("/__health", (c) => {
-  // @ts-ignore
-  const base = (c.env && (c.env as any).BASE_URL) ? (c.env as any).BASE_URL : "default";
-  const FEATURES = { monthList: true, flexibleSlots: true, whoami: true } as const;
-  return c.json({ ok: true, ts: Date.now(), env: base, features: FEATURES });
+app.get("/__health", (c: any) => {
+  const runtimeEnv = __resolveEnv(c);
+  return c.json({
+    ok: true,
+    ts: Date.now(),
+    env: runtimeEnv,
+    features: { monthList: true, flexibleSlots: true, whoami: true }
+  });
 });
 /** ==== injected(env) ==== */
 const __resolveEnv = (c: any) => {
@@ -45,6 +48,7 @@ app.get("/__env", (c: any) => {
 
 
 export default app;
+
 
 
 
