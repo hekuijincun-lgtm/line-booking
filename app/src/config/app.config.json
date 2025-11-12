@@ -1,0 +1,23 @@
+{
+  "brand": { "name": "Salon Leads", "primaryColor": "#111827" },
+  "services": [
+    { "id": "cut",  "name": "カット", "durationMin": 60 },
+    { "id": "perm", "name": "パーマ", "durationMin": 90 }
+  ],
+  "businessHours": {
+    "tz": "Asia/Tokyo",
+    "days": {
+      "mon": ["10:00-20:00"],
+      "tue": [],
+      "wed": ["10:00-20:00"],
+      "thu": ["10:00-20:00"],
+      "fri": ["10:00-20:00"],
+      "sat": ["10:00-18:00"],
+      "sun": []
+    }
+  },
+  "ui": {
+    "calendar": { "showHolidays": true, "minAdvanceHours": 2 },
+    "texts": { "reserveButton": "予約する", "myPage": "予約確認" }
+  }
+}

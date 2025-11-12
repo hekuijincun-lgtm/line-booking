@@ -1,64 +1,49 @@
-name = "saas-api"
+name = "saas-api-v4"
 main = "src/index.ts"
-compatibility_date = "2024-10-01"
-
-preview_urls = false
+compatibility_date = "2025-11-12"
 minify = true
-account_id = "0d18eef52ba66f8cddcf260265d14cf4"
+preview_urls = false
 
 [vars]
-BASE_URL = "https://saas-api.hekuijincun.workers.dev"
-ADMINS = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
-
-# === KV バインド ===
-[[kv_namespaces]]
-binding    = "LINE_BOOKING"
-id         = "22103efd0bd04365a2ec050a24b3dbc4"
-preview_id = "03bbf9082957456cb4c18159d6788808"
-
-# === Durable Object バインド（★クラス名を SlotLockV2 に統一） ===
-[[durable_objects.bindings]]
-name = "SLOT_LOCK"
-class_name = "SlotLockV3"
-
-# === マイグレーション（Freeプラン必須: SQLite バックエンド） ===
-[env.staging]
-name = "saas-api-staging"
-preview_urls = false
-
-[env.staging.vars]
-BASE_URL = "https://saas-api-staging.hekuijincun.workers.dev"
+BASE_URL = "https://saas-api-v4.hekuijincun.workers.dev"
 ADMINS   = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
 
-[[env.staging.kv_namespaces]]
-binding = "LINE_BOOKING"
-id = "22103efd0bd04365a2ec050a24b3dbc4"
-preview_id = "03bbf9082957456cb4c18159d6788808"
+[durable_objects]
+bindings = [{ name = "SLOT_LOCK", class_name = "SlotLockV4" }]
 
-[[env.staging.durable_objects.bindings]]
-name = "SLOT_LOCK"
-class_name = "SlotLockV3"
+[[migrations]]
+tag = "v1-SlotLockV4"
+new_sqlite_classes = ["SlotLockV4"]
+
+[env.staging]
+name = "saas-api-staging-v4"
+[env.staging.vars]
+BASE_URL = "https://saas-api-v4.hekuijincun.workers.dev"
+ADMINS   = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
+[env.staging.durable_objects]
+bindings = [{ name = "SLOT_LOCK", class_name = "SlotLockV4" }]
+[[env.staging.migrations]]
+tag = "v1-SlotLockV4"
+new_sqlite_classes = ["SlotLockV4"]
 
 [env.production]
-name = "saas-api"
-
+name = "saas-api-v4"
 [env.production.vars]
-BASE_URL = "https://saas-api.hekuijincun.workers.dev"
+BASE_URL = "https://saas-api-v4.hekuijincun.workers.dev"
 ADMINS   = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
+[env.production.durable_objects]
+bindings = [{ name = "SLOT_LOCK", class_name = "SlotLockV4" }]
+[[env.production.migrations]]
+tag = "v1-SlotLockV4"
+new_sqlite_classes = ["SlotLockV4"]
 
-[[env.production.kv_namespaces]]
-binding = "LINE_BOOKING"
-id = "22103efd0bd04365a2ec050a24b3dbc4"
 
-[[env.production.durable_objects.bindings]]
-name = "SLOT_LOCK"
-class_name = "SlotLockV3"
 
-[[migrations]]
-tag = "m1-new-sqlite-v3"
-new_sqlite_classes = ["SlotLockV3"]
 
-[[migrations]]
-tag = "m2-rename-v2-to-v3"
-rename_class = { from = "SlotLockV2", to = "SlotLockV3" }
+
+
+
+
+
+
 
