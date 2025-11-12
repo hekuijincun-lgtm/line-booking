@@ -1,52 +1,55 @@
-name = "saas-api-v4"
+name = "saas-api"
 main = "src/index.ts"
-compatibility_date = "2025-11-12"
-minify = true
-preview_urls = false
+compatibility_date = "2024-11-01"
+compatibility_flags = []
+
+workers_dev = true
 
 [vars]
-BASE_URL = "https://saas-api-v4.hekuijincun.workers.dev"
-ADMINS   = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
+ENV_NAME = "local-or-default"
+
+[[kv_namespaces]]
+binding = "LINE_BOOKING"
+id = "LINE_BOOKING"            # 本番/ステージングで wrangler 側バインド済みを使用
 
 [durable_objects]
-bindings = [{ name = "SLOT_LOCK", class_name = "SlotLockV4" }]
+bindings = [
+  { name = "SLOT_LOCK", class_name = "SlotLockV3" }
+]
 
-[[migrations]]
-tag = "v1-SlotLockV4"
-new_sqlite_classes = ["SlotLockV4"]
+[observability]
+enabled = true
 
 [env.staging]
 name = "saas-api-staging-v4"
+route = ""
+workers_dev = true
 [env.staging.vars]
-BASE_URL = "https://saas-api-v4.hekuijincun.workers.dev"
-ADMINS   = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
+ENV_NAME = "staging"
+[env.staging.kv_namespaces]
+bindings = [
+  { binding = "LINE_BOOKING", id = "LINE_BOOKING" }
+]
 [env.staging.durable_objects]
-bindings = [{ name = "SLOT_LOCK", class_name = "SlotLockV4" }]
-[[env.staging.migrations]]
-tag = "v1-SlotLockV4"
-new_sqlite_classes = ["SlotLockV4"]
+bindings = [
+  { name = "SLOT_LOCK", class_name = "SlotLockV3" }
+]
+[env.staging.observability]
+enabled = true
 
 [env.production]
 name = "saas-api-v4"
+route = ""
+workers_dev = true
 [env.production.vars]
-BASE_URL = "https://saas-api-v4.hekuijincun.workers.dev"
-ADMINS   = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
+ENV_NAME = "production"
+[env.production.kv_namespaces]
+bindings = [
+  { binding = "LINE_BOOKING", id = "LINE_BOOKING" }
+]
 [env.production.durable_objects]
-bindings = [{ name = "SLOT_LOCK", class_name = "SlotLockV4" }]
-[[env.production.migrations]]
-tag = "v1-SlotLockV4"
-new_sqlite_classes = ["SlotLockV4"]
-
-
-
-
-
-
-
-
-
-<<<<<<< Updated upstream
-
-
-=======
->>>>>>> Stashed changes
+bindings = [
+  { name = "SLOT_LOCK", class_name = "SlotLockV3" }
+]
+[env.production.observability]
+enabled = true
