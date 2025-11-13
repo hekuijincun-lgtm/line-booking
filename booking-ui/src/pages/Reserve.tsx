@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ReserveInput } from "../lib/api";
+import { api, type ReserveInput } from "../lib/api";
 
 function useQuery(){
   const p = new URLSearchParams(location.search);
@@ -67,3 +67,4 @@ function Field(props:{label:string, children:any}){
     </label>
   )
 }
+

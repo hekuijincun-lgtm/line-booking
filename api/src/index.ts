@@ -1,3 +1,4 @@
+import { tryHandleBookingUiREST } from "./booking-ui-rest";
 import { Hono } from "hono";
 import { publicApi } from "./routes/public";
 
@@ -91,20 +92,11 @@ app.get("/__health", async (c: any) => {
 
 
 
-export default app;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+const __orig = app;
+export default {
+  async fetch(request: Request, env: any, ctx: any) {
+    const maybe = await tryHandleBookingUiREST(request as Request, env as any);
+    if (maybe) return maybe;
+    return __orig.fetch(request, env, ctx);
+  }
+};

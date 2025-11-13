@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, Slot } from "../lib/api";
+import { api, type Slot } from "../lib/api";
 
 function toDateInputValue(d: Date){
   const y = d.getFullYear();
@@ -63,3 +63,4 @@ function SlotCard({slot}:{slot:Slot}){
     </a>
   )
 }
+
