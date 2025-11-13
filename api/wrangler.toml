@@ -1,3 +1,4 @@
+preview_urls = false
 name = "saas-api"
 main = "src/index.ts"
 compatibility_date = "2024-11-01"
@@ -61,5 +62,6 @@ enabled = true
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["SlotLockV3"]
-preview_urls = false
+
+
 

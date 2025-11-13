@@ -33,19 +33,57 @@ app.get("/__env", (c: any) => {
 });
 
 // ` (auto-sanitized)
-/** ==== /injected ==== */
-
-
-
-app.get("/__health", (c: any) => {
+/** ==== /injected ==== */
+// __ENV_ROUTES_START__
+app.get("/__env", (c: any) => {
   const runtimeEnv = __resolveEnv(c);
-  return c.json({
-    ok: true,
-    ts: Date.now(),
-    env: runtimeEnv,
-    features: { monthList: true, flexibleSlots: true, whoami: true }
-  });
+  const keys = Object.keys(c.env || {}).sort();
+  const peek: Record<string,string> = {};
+  for (const k of keys) if (typeof (c.env as any)[k] === "string") peek[k] = (c.env as any)[k];
+  return c.json({ ok: true, runtimeEnv, ENV_NAME: (c.env as any)?.ENV_NAME ?? null, keys, peek });
 });
+
+app.get("/__health", async (c: any) => {
+  const env = __resolveEnv(c);
+  const checks: Record<string, { ok: boolean; detail?: string }> = {};
+
+  try {
+    const key = `__health:${Date.now()}`;
+    await c.env.LINE_BOOKING.put(key, "1", { expirationTtl: 60 });
+    const v = await c.env.LINE_BOOKING.get(key);
+    checks.kv = { ok: v === "1" };
+  } catch (e:any) {
+    checks.kv = { ok: false, detail: String(e?.message ?? e) };
+  }
+
+  try {
+    const id = c.env.SLOT_LOCK.idFromName("probe");
+    const stub = c.env.SLOT_LOCK.get(id);
+    const r = await stub.fetch("https://do/probe");
+    checks.do = { ok: r.ok };
+  } catch (e:any) {
+    checks.do = { ok: false, detail: String(e?.message ?? e) };
+  }
+
+  const ok = Object.values(checks).every(x => x.ok);
+  return c.json({ ok, ts: Date.now(), env, checks });
+});
+// __ENV_ROUTES_END__
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -54,6 +92,12 @@ app.get("/__health", (c: any) => {
 
 
 export default app;
+
+
+
+
+
+
 
 
 
