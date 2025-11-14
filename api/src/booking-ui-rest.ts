@@ -1,23 +1,3 @@
-# 35-Overwrite-BookingUiRest-And-Deploy.ps1
-
-$repo   = "$HOME/repo/line-booking"
-$apiDir = Join-Path $repo "api"
-$file   = Join-Path $apiDir "src/booking-ui-rest.ts"
-
-if (-not (Test-Path $file)) {
-    throw "not found: $file"
-}
-
-"✏ Overwrite target: $file"
-
-# --- 1) バックアップ --------------------------------------------------------
-$stamp  = Get-Date -Format "yyyyMMdd-HHmmss"
-$backup = "$file.bak-$stamp"
-Copy-Item $file $backup -Force
-"✅ Backup created: $backup"
-
-# --- 2) TypeScript 本体を丸ごと上書き --------------------------------------
-$ts = @'
 import { z } from "zod";
 
 export interface Env {
@@ -41,7 +21,7 @@ function json(body: any, status = 200, extra: Record<string, string> = {}) {
 function formatJstLabel(isoStart: string, isoEnd: string): string {
   const toJst = (iso: string) => {
     const d = new Date(iso);
-    const j = new Date(d.getTime() + 9 * 60 * 60 * 1000); // UTC → JST(+9h)
+    const j = new Date(d.getTime() + 9 * 60 * 60 * 1000); // +9h
     const hh = j.getHours().toString().padStart(2, "0");
     const mm = j.getMinutes().toString().padStart(2, "0");
     return `${hh}:${mm}`;
@@ -65,7 +45,6 @@ export async function tryHandleBookingUiREST(
     });
   }
 
-  // --- GET /line/slots -----------------------------------------------------
   if (request.method === "GET" && url.pathname === "/line/slots") {
     const date = url.searchParams.get("date") ?? "";
     if (!qDate.safeParse(date).success) {
@@ -110,7 +89,7 @@ export async function tryHandleBookingUiREST(
       ];
     }
 
-    // ✅ label を追加して返す
+    // ✅ label を付けて返す
     return json({
       slots: slots.map((s) => ({
         ...s,
@@ -119,7 +98,6 @@ export async function tryHandleBookingUiREST(
     });
   }
 
-  // --- POST /line/reserve --------------------------------------------------
   if (request.method === "POST" && url.pathname === "/line/reserve") {
     const ReserveSchema = z.object({
       slotId: z.string().min(1),
@@ -155,21 +133,3 @@ export async function tryHandleBookingUiREST(
 
   return undefined;
 }
-'@
-
-[IO.File]::WriteAllText($file, $ts, [Text.UTF8Encoding]::new($false))
-"✅ booking-ui-rest.ts overwritten."
-
-# --- 3) デプロイ ------------------------------------------------------------
-Set-Location $apiDir
-"🚀 Deploy staging..."
-npx -y wrangler@4.46.0 deploy --env=staging
-
-"🚀 Deploy production..."
-npx -y wrangler@4.46.0 deploy --env=production
-
-# --- 4) レスポンス確認 ------------------------------------------------------
-$today = Get-Date -Format 'yyyy-MM-dd'
-$resp  = Invoke-WebRequest "https://saas-api-v4.hekuijincun.workers.dev/line/slots?date=$today" -UseBasicParsing
-"🔎 Response:"
-$resp.Content
