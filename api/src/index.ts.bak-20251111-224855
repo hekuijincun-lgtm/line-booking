@@ -1,0 +1,15 @@
+import { Hono } from "hono";
+import { publicApi } from './routes/public';
+
+const app = new Hono();
+app.get('/__health', (c) => {
+  const FEATURES = { monthList: true, flexibleSlots: true, whoami: true } as const;
+  // @ts-ignore
+  const base = (c.env && (c.env as any).BASE_URL) ? (c.env as any).BASE_URL : 'default';
+  return c.json({ ok: true, ts: Date.now(), env: base, features: FEATURES });
+
+app.route('/api/public', publicApi);
+
+export { SlotLockV4 as SlotLockV3 };
+export { SlotLockV4 as SlotLockV2 };
+export default app;

@@ -1,26 +1,67 @@
+preview_urls = false
 name = "saas-api"
 main = "src/index.ts"
 compatibility_date = "2024-11-01"
 compatibility_flags = []
-
-[durable_objects]
-bindings = [
-  { name = "SLOT_LOCK", class_name = "SlotLockV2" }
-]
-
-[[kv_namespaces]]
-binding = "LINE_BOOKING"
-id = "22103efd0bd04365a2ec050a24b3dbc4"
+workers_dev = true
 
 [vars]
-BASE_URL = "https://saas-api.hekuijincun.workers.dev"
-ADMINS   = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
+ENV_NAME = "local-or-default"
 
+[durable_objects]
+[[durable_objects.bindings]]
+name = "SLOT_LOCK"
+class_name = "SlotLockV3"
+
+[observability]
+enabled = true
+
+# ---------- STAGING ----------
 [env.staging]
+name = "saas-api-staging-v4"
+workers_dev = true
+
 [env.staging.vars]
-BASE_URL = "https://saas-api-staging.hekuijincun.workers.dev"
-ADMINS   = "U929e7fcc7a5ed0c4bcbd0c4c9b001815"
+ENV_NAME = "staging"
+
+# ※ kv_namespaces は「配列のテーブル」記法
+[[env.staging.kv_namespaces]]
+binding = "LINE_BOOKING"
+id = "b79b8cf60453429097de6c6c85f8c229"   # ← 後で入れてOK。今は空のままでもデプロイ可能
+
+[env.staging.durable_objects]
+[[env.staging.durable_objects.bindings]]
+name = "SLOT_LOCK"
+class_name = "SlotLockV3"
+
+[env.staging.observability]
+enabled = true
+
+# ---------- PRODUCTION ----------
+[env.production]
+name = "saas-api-v4"
+workers_dev = true
+
+[env.production.vars]
+ENV_NAME = "production"
+
+[[env.production.kv_namespaces]]
+binding = "LINE_BOOKING"
+id = "bdcf5fd8d8034c498c2bc1375a657c24"   # ← 後で入れてOK。今は空のままでもデプロイ可能
+
+[env.production.durable_objects]
+[[env.production.durable_objects.bindings]]
+name = "SLOT_LOCK"
+class_name = "SlotLockV3"
+
+[env.production.observability]
+enabled = true
+
+# （任意）Warning消したければ DO migrations を追加
 
 [[migrations]]
-tag = "v1-slotlock-v3"
+tag = "v1"
 new_sqlite_classes = ["SlotLockV3"]
+
+
+

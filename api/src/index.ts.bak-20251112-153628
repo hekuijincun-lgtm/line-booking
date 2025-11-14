@@ -1,0 +1,66 @@
+import { Hono } from "hono";
+import { publicApi } from "./routes/public";
+
+// ---- Durable Object (stub for wiring) ----
+export class SlotLockV4 {
+  state: DurableObjectState; env: any;
+  constructor(state: DurableObjectState, env: any) { this.state = state; this.env = env; }
+  async fetch(_req: Request) {
+    return new Response("DO alive", { status: 200, headers: { "content-type": "text/plain" } });
+  }
+}
+// backward compatibility (old class_name=SlotLockV3)
+export { SlotLockV4 as SlotLockV3 };
+
+const app = new Hono();
+
+app.route("/api/public", publicApi);
+
+
+/** ==== injected(env) ==== */
+const __resolveEnv = (c: any) => {
+  const host = c.req?.raw?.headers?.get?.("host") || "";
+  const v = (c.env?.ENV_NAME ?? c.env?.EnvName ?? c.env?.env_name);
+  return v ?? (host.includes("-staging-") ? "staging" : "production");
+};
+
+app.get("/__env", (c: any) => {
+  const runtimeEnv = __resolveEnv(c);
+  const keys = Object.keys(c.env || {}).sort();
+  const peek: Record<string,string> = {};
+  for (const k of keys) if (typeof (c.env as any)[k] === "string") peek[k] = (c.env as any)[k];
+  return c.json({ ok: true, runtimeEnv, ENV_NAME: (c.env as any)?.ENV_NAME ?? null, keys, peek });
+});
+
+// ` (auto-sanitized)
+/** ==== /injected ==== */
+
+
+
+app.get("/__health", (c: any) => {
+  const runtimeEnv = __resolveEnv(c);
+  return c.json({
+    ok: true,
+    ts: Date.now(),
+    env: runtimeEnv,
+    features: { monthList: true, flexibleSlots: true, whoami: true }
+  });
+});
+
+
+
+
+
+
+
+export default app;
+
+
+
+
+
+
+
+
+
+
