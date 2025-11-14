@@ -1,2 +1,9 @@
 api/wrangler.toml.bak*
 api/some.yml
+# node & local caches
+node_modules/
+booking-ui/_node_modules.trash.*/
+# build artifacts
+dist/
+# env files (UIは追跡しない)
+booking-ui/.env.local

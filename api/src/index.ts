@@ -95,8 +95,10 @@ app.get("/__health", async (c: any) => {
 const __orig = app;
 export default {
   async fetch(request: Request, env: any, ctx: any) {
-    const maybe = await tryHandleBookingUiREST(request as Request, env as any);
-    if (maybe) return maybe;
-    return __orig.fetch(request, env, ctx);
+    const maybe = await tryHandleBookingUiREST(request as Request, env as any); if (maybe) return maybe;
+return __orig.fetch(request, env, ctx);
   }
 };
+
+
+
