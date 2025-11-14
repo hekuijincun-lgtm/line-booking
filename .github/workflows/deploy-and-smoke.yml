@@ -1,0 +1,20 @@
+﻿name: deploy-and-smoke
+on:
+  push:
+    branches: [ master ]
+jobs:
+  deploy:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Install Wrangler (pin)
+        run: npm i -g wrangler@4.46.0
+      - name: Smoke Staging
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/03-Deploy-And-Smoke.ps1 -Env staging
+      - name: Smoke Production
+        if: github.ref == 'refs/heads/master'
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/03-Deploy-And-Smoke.ps1 -Env production -BaseOverride "https://saas-api-v4.hekuijincun.workers.dev"
