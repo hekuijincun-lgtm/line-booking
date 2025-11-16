@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ja">
+<head>
+    <meta http-equiv="Cache-Control" content="public, max-age=300" />
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>予約UI (LINE Booking)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 24px; line-height: 1.5; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding:16px; margin-bottom:16px; }
+    .row { display:flex; gap:12px; align-items:center; flex-wrap: wrap; }
+    .btn { padding:10px 14px; border-radius:10px; border:1px solid #444; background:#111; color:#fff; cursor:pointer; }
+    .btn:disabled { opacity:.5; cursor:default; }
+    input,select { padding:10px 12px; border-radius:8px; border:1px solid #ccc; }
+    .muted { color:#666; font-size: 0.9em; }
+    .ok { color: #0a7; }
+    .ng { color: #c33; }
+    .slots { display:grid; grid-template-columns: repeat(auto-fill,minmax(240px,1fr)); gap:12px; margin-top:12px; }
+    .slot { border:1px solid #ccc; border-radius:10px; padding:10px; }
+    .slot h4 { margin:0 0 6px 0; font-size: 16px; }
+    .footer { margin-top:28px; font-size:.9em; color:#666; }
+  </style>
+<script>
+  const fallback = "https://saas-api-v4.hekuijincun.workers.dev";
+  const q = new URL(location.href).searchParams;
+  const API_BASE =
+    q.get("api")==="stg" ? "https://saas-api-staging-v4.hekuijincun.workers.dev" :
+    q.get("api")?.startsWith("http") ? q.get("api") : fallback;
+</script>
+</head>
+<body>
+  <h1>予約フォーム</h1>
+  <div class="card">
+    <div class="row">
+      <label for="date">日付</label>
+      <input id="date" type="date"/>
+      <button id="load" class="btn">空き枠を取得</button>
+    </div>
+    <div id="status" class="muted" style="margin-top:8px;"></div>
+    <div id="slots" class="slots"></div>
+  </div>
+
+  <div class="card">
+    <h2>予約</h2>
+    <div class="row">
+      <label for="name">お名前</label>
+      <input id="name" placeholder="山田太郎"/>
+      <label for="phone">電話(任意)</label>
+      <input id="phone" placeholder="080-xxxx-xxxx"/>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <label for="slot">時間枠</label>
+      <select id="slot"><option value="">先に空き枠を取得してね</option></select>
+      <button id="reserve" class="btn">この内容で予約する</button>
+    </div>
+    <div id="reserveStatus" class="muted" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="footer">
+    <div>API: <span id="apiBase"></span></div>
+  </div>
+
+<script>
+const API_BASE = "https://saas-api-v4.hekuijincun.workers.dev";
+
+const fmt = (iso) => {
+  try {
+    const d = new Date(iso);
+    const p = (n)=> String(n).padStart(2,"0");
+    return ${d.getFullYear()}-- :;
+  } catch { return iso }
+};
+
+const $ = (id) => document.getElementById(id);
+apiBase.textContent = API_BASE;
+
+const today = new Date();
+date.value = ${today.getFullYear()}--;
+
+load.addEventListener("click", async () => {
+  const date = date.value;
+  status.textContent = "取得中…";
+  load.disabled = true;
+  slots.innerHTML = "";
+  slot.innerHTML = <option value="">読み込み中…</option>;
+  try {
+    const r = await fetch(${API_BASE}/line/slots?date=, { method:"GET" });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j?.error||HTTP );
+    const slots = Array.isArray(j.slots) ? j.slots : [];
+    status.innerHTML = slots.length ? <span class="ok">空き枠  件</span> : <span class="ng">空き枠なし</span>;
+
+    const opt = [<option value="">選択してね</option>].concat(
+      slots.map(s => <option value=""> - （残 ）</option>)
+    ).join("");
+    slot.innerHTML = opt;
+
+    slots.innerHTML = slots.map(s => 
+      <div class="slot">
+        <h4> - </h4>
+        <div>ID: </div>
+        <div class="muted">capacity:  / remaining: </div>
+      </div>
+    ).join("");
+
+  } catch (e) {
+    console.error(e);
+    status.innerHTML = <span class="ng">取得失敗: </span>;
+    slot.innerHTML = <option value="">取得に失敗</option>;
+  } finally {
+    load.disabled = false;
+  }
+});
+
+reserve.addEventListener("click", async () => {
+  const name = name.value.trim();
+  const phone = phone.value.trim();
+  const slotId = slot.value.trim();
+  reserveStatus.textContent = "送信中…";
+  reserve.disabled = true;
+  try {
+    if(!name) throw new Error("お名前は必須だよ");
+    if(!slotId) throw new Error("時間枠を選んでね");
+    const body = { slotId, name };
+    if(phone) body.phone = phone;
+    const r = await fetch(${API_BASE}/line/reserve, {
+      method:"POST",
+      headers:{ "content-type":"application/json" },
+      body: JSON.stringify(body)
+    });
+    const j = await r.json();
+    if(!r.ok || !j.ok) throw new Error(j?.error || HTTP );
+    reserveStatus.innerHTML = <span class="ok">予約OK！ 予約ID: </span>;
+  } catch (e) {
+    console.error(e);
+    reserveStatus.innerHTML = <span class="ng">予約失敗: </span>;
+  } finally {
+    reserve.disabled = false;
+  }
+});
+
+// 初回ロード
+document.addEventListener("DOMContentLoaded", () => load.click());
+</script>
+</body>
+</html>
+
+

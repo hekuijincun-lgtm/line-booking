@@ -1,0 +1,3 @@
+- name: Deploy Booking UI (Cloudflare Pages)
+  if: github.ref == 'refs/heads/master'
+  run: npx -y wrangler@4.48.0 pages deploy booking-ui-static --project-name booking-ui --config pages.wrangler.toml --commit-dirty=true

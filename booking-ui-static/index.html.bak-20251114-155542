@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>Kazuki Booking | 予約フォーム</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="public, max-age=300" />
+  <meta name="description" content="Kazuki Group のオンライン予約フォームです。" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              navy: '#0f172a',
+              navySoft: '#111827',
+              gold: '#facc15',
+              accent: '#1d4ed8'
+            }
+          }
+        }
+      }
+    };
+  </script>
+
+  <script>
+    const fallback = "https://saas-api-v4.hekuijincun.workers.dev";
+    const q = new URL(location.href).searchParams;
+    const API_BASE =
+      q.get("api") === "stg"
+        ? "https://saas-api-staging-v4.hekuijincun.workers.dev"
+        : (q.get("api") && q.get("api").startsWith("http"))
+          ? q.get("api")
+          : fallback;
+
+    let selectedSlotId = null;
+    let selectedSlotLabel = "";
+    let slotsCache = [];
+
+    function setQuickDate(kind) {
+      const d = new Date();
+      if (kind === "tomorrow") {
+        d.setDate(d.getDate() + 1);
+      } else if (kind === "weekend") {
+        const day = d.getDay(); // 0:日〜6:土
+        let diff = (6 - day + 7) % 7;
+        if (diff === 0) diff = 7; // 次の土曜
+        d.setDate(d.getDate() + diff);
+      }
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      const input = document.getElementById("date");
+      input.value = yyyy + "-" + mm + "-" + dd;
+    }
+
+    async function loadSlots() {
+      const dateInput = document.getElementById("date");
+      const list = document.getElementById("slot-list");
+      const msg = document.getElementById("system-message");
+
+      selectedSlotId = null;
+      selectedSlotLabel = "";
+      list.innerHTML = "";
+      msg.textContent = "";
+      msg.className = "";
+
+      const date = dateInput.value;
+      if (!date) {
+        msg.textContent = "日付を選択してください。";
+        msg.className = "text-sm text-red-400 mt-2";
+        return;
+      }
+
+      const loading = document.getElementById("slots-loading");
+      loading.classList.remove("hidden");
+
+      try {
+        const res = await fetch(API_BASE + "/line/slots?date=" + encodeURIComponent(date));
+        if (!res.ok) throw new Error("ステータスコード: " + res.status);
+        const data = await res.json();
+        slotsCache = data.slots || data || [];
+        if (!Array.isArray(slotsCache) || slotsCache.length === 0) {
+          list.innerHTML = '<p class="text-sm text-slate-300">この日付の空き枠はありません。</p>';
+          return;
+        }
+
+        list.innerHTML = "";
+        slotsCache.forEach(slot => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className =
+            "slot-card w-full text-left px-4 py-3 mb-2 rounded-xl border border-slate-700 bg-slate-900/80 hover:border-brand-gold hover:bg-slate-800 transition flex items-center justify-between";
+          const id = slot.id || slot.slotId || "";
+          const label = slot.label || slot.time || slot.startTime || "時間未設定";
+          const remain = (slot.remaining ?? slot.capacity ?? null);
+
+          btn.dataset.slotId = id;
+          btn.dataset.label = label;
+          btn.dataset.remain = remain;
+
+          let badgeHtml = "";
+          if (remain !== null && remain !== undefined) {
+            const isLow = Number(remain) <= 2;
+            const badgeClass = isLow
+              ? "bg-rose-500/10 text-rose-300 border-rose-400/70"
+              : "bg-emerald-500/10 text-emerald-300 border-emerald-400/70";
+            badgeHtml =
+              '<span class="ml-3 inline-flex items-center rounded-full border ' +
+              badgeClass +
+              ' px-3 py-1 text-[11px] font-semibold">' +
+              "残り " + remain + " 枠" +
+              "</span>";
+          }
+
+          btn.innerHTML =
+            '<div>' +
+              '<div class="text-sm font-semibold text-slate-50">' + label + '</div>' +
+              (remain !== null && remain !== undefined
+                ? '<div class="text-xs text-slate-400 mt-0.5">早めのご予約をおすすめします。</div>'
+                : "") +
+            '</div>' +
+            badgeHtml;
+
+          btn.addEventListener("click", () => selectSlot(btn));
+          list.appendChild(btn);
+        });
+      } catch (err) {
+        console.error(err);
+        msg.textContent = "空き枠の取得に失敗しました。少し時間をおいて再度お試しください。";
+        msg.className = "text-sm text-red-400 mt-2";
+      } finally {
+        loading.classList.add("hidden");
+      }
+    }
+
+    function selectSlot(element) {
+      selectedSlotId = element.dataset.slotId || null;
+      selectedSlotLabel = element.dataset.label || "";
+      document.querySelectorAll(".slot-card").forEach(el => {
+        el.classList.remove("border-brand-gold", "ring-2", "ring-brand-gold/60");
+      });
+      element.classList.add("border-brand-gold", "ring-2", "ring-brand-gold/60");
+      const msg = document.getElementById("system-message");
+      msg.textContent = "選択中の枠: " + (selectedSlotLabel || selectedSlotId || "なし");
+      msg.className = "text-sm text-brand-gold mt-2";
+    }
+
+    function openConfirmModal() {
+      const dateInput = document.getElementById("date");
+      const nameInput = document.getElementById("name");
+      const phoneInput = document.getElementById("phone");
+      const msg = document.getElementById("system-message");
+
+      msg.textContent = "";
+      msg.className = "";
+
+      if (!dateInput.value) {
+        msg.textContent = "日付を選択してください。";
+        msg.className = "text-sm text-red-400 mt-2";
+        return;
+      }
+      if (!selectedSlotId) {
+        msg.textContent = "予約する枠を選択してください。";
+        msg.className = "text-sm text-red-400 mt-2";
+        return;
+      }
+      if (!nameInput.value.trim()) {
+        msg.textContent = "お名前を入力してください。";
+        msg.className = "text-sm text-red-400 mt-2";
+        return;
+      }
+
+      document.getElementById("confirm-date").textContent = dateInput.value;
+      document.getElementById("confirm-slot").textContent = selectedSlotLabel || selectedSlotId;
+      document.getElementById("confirm-name").textContent = nameInput.value.trim();
+      document.getElementById("confirm-phone").textContent = phoneInput.value.trim() || "未入力";
+
+      const modal = document.getElementById("confirm-modal");
+      modal.classList.remove("hidden");
+    }
+
+    async function doReserve() {
+      const dateInput = document.getElementById("date");
+      const nameInput = document.getElementById("name");
+      const phoneInput = document.getElementById("phone");
+      const msg = document.getElementById("system-message");
+
+      const payload = {
+        slotId: selectedSlotId,
+        name: nameInput.value.trim(),
+        phone: phoneInput.value.trim()
+      };
+
+      const reserveBtn = document.getElementById("reserveBtn");
+      reserveBtn.disabled = true;
+      reserveBtn.classList.add("opacity-60", "cursor-wait");
+
+      try {
+        const res = await fetch(API_BASE + "/line/reserve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const text = await res.text();
+        if (!res.ok) {
+          throw new Error("予約に失敗しました: " + res.status + " " + text);
+        }
+
+        msg.textContent = "予約が完了しました。LINEをご確認ください。";
+        msg.className = "text-sm text-emerald-400 mt-2";
+
+        const success = document.getElementById("success-panel");
+        success.classList.remove("hidden");
+        success.classList.remove("opacity-0", "translate-y-4");
+        success.classList.add("opacity-100", "translate-y-0");
+      } catch (err) {
+        console.error(err);
+        msg.textContent = "予約処理中にエラーが発生しました。時間をおいて再度お試しください。";
+        msg.className = "text-sm text-red-400 mt-2";
+      } finally {
+        reserveBtn.disabled = false;
+        reserveBtn.classList.remove("opacity-60", "cursor-wait");
+        closeConfirmModal();
+      }
+    }
+
+    function closeConfirmModal() {
+      const modal = document.getElementById("confirm-modal");
+      modal.classList.add("hidden");
+    }
+
+    function initForm() {
+      const d = document.getElementById("date");
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, "0");
+      const dd = String(now.getDate()).padStart(2, "0");
+      d.value = yyyy + "-" + mm + "-" + dd;
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      initForm();
+      document.getElementById("loadSlotsBtn").addEventListener("click", loadSlots);
+      document.getElementById("reserveBtn").addEventListener("click", openConfirmModal);
+      document.getElementById("confirmYes").addEventListener("click", doReserve);
+      document.getElementById("confirmNo").addEventListener("click", closeConfirmModal);
+
+      document.getElementById("tab-today").addEventListener("click", () => setQuickDate("today"));
+      document.getElementById("tab-tomorrow").addEventListener("click", () => setQuickDate("tomorrow"));
+      document.getElementById("tab-weekend").addEventListener("click", () => setQuickDate("weekend"));
+    });
+  </script>
+</head>
+
+<body class="min-h-screen bg-slate-950 text-slate-50">
+  <div class="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
+    <header class="border-b border-slate-800/80 bg-slate-950/80 backdrop-blur">
+      <div class="mx-auto max-w-3xl px-4 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div class="h-9 w-9 rounded-xl bg-gradient-to-br from-brand-gold to-amber-500 flex items-center justify-center shadow-lg shadow-amber-500/30">
+            <span class="text-xs font-extrabold text-slate-950">KG</span>
+          </div>
+          <div>
+            <div class="text-sm font-semibold tracking-wide text-slate-50">
+              Kazuki Group
+            </div>
+            <div class="text-[11px] text-slate-400">Online Booking</div>
+          </div>
+        </div>
+        <span class="inline-flex items-center rounded-full border border-slate-700/80 px-3 py-1 text-[11px] font-medium text-slate-300">
+          <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 mr-1.5 animate-pulse"></span>
+          稼働中
+        </span>
+      </div>
+    </header>
+
+    <main class="mx-auto max-w-3xl px-4 py-8">
+      <div class="mb-6">
+        <h1 class="text-2xl font-bold text-slate-50 tracking-tight">
+          ご予約フォーム
+        </h1>
+        <p class="mt-1 text-sm text-slate-400">
+          日付と空き枠を選択して、お名前・電話番号を入力してください。<br />
+          予約完了後、LINEに確認メッセージが届きます。
+        </p>
+      </div>
+
+      <div class="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.4fr)]">
+        <section class="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/40">
+          <h2 class="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <span class="h-6 w-1 rounded-full bg-gradient-to-b from-brand-gold to-amber-500"></span>
+            予約内容の入力
+          </h2>
+
+          <div class="space-y-4">
+            <div>
+              <div class="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label for="date" class="mb-1 block text-xs font-medium text-slate-300">
+                    日付<span class="ml-1 text-amber-400">*</span>
+                  </label>
+                  <input
+                    id="date"
+                    type="date"
+                    class="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm text-slate-50 shadow-inner shadow-black/40 focus:border-brand-gold focus:outline-none focus:ring-1 focus:ring-brand-gold/70"
+                  />
+                  <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
+                    <button
+                      id="tab-today"
+                      type="button"
+                      class="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1 text-[11px] text-slate-200 hover:border-brand-gold/70 hover:bg-slate-800 transition"
+                    >
+                      今日
+                    </button>
+                    <button
+                      id="tab-tomorrow"
+                      type="button"
+                      class="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1 text-[11px] text-slate-200 hover:border-brand-gold/70 hover:bg-slate-800 transition"
+                    >
+                      明日
+                    </button>
+                    <button
+                      id="tab-weekend"
+                      type="button"
+                      class="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1 text-[11px] text-slate-200 hover:border-brand-gold/70 hover:bg-slate-800 transition"
+                    >
+                      週末
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label for="name" class="mb-1 block text-xs font-medium text-slate-300">
+                    お名前<span class="ml-1 text-amber-400">*</span>
+                  </label>
+                  <input
+                    id="name"
+                    placeholder="山田太郎"
+                    class="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm text-slate-50 shadow-inner shadow-black/40 focus:border-brand-gold focus:outline-none focus:ring-1 focus:ring-brand-gold/70"
+                  />
+                </div>
+
+                <div>
+                  <label for="phone" class="mb-1 block text-xs font-medium text-slate-300">
+                    電話番号（任意）
+                  </label>
+                  <input
+                    id="phone"
+                    placeholder="080-xxxx-xxxx"
+                    class="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm text-slate-50 shadow-inner shadow-black/40 focus:border-brand-gold focus:outline-none focus:ring-1 focus:ring-brand-gold/70"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between gap-3">
+              <button
+                id="loadSlotsBtn"
+                type="button"
+                class="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 text-xs font-medium text-slate-100 hover:border-brand-gold/70 hover:bg-slate-800 transition"
+              >
+                <span class="h-1.5 w-1.5 rounded-full bg-slate-400"></span>
+                空き枠を読み込む
+              </button>
+
+              <button
+                id="reserveBtn"
+                type="button"
+                class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand-gold via-amber-400 to-yellow-400 px-4 py-2 text-xs font-semibold text-slate-950 shadow-lg shadow-amber-500/40 hover:brightness-105 active:scale-[0.98] transition"
+              >
+                予約を確定する
+              </button>
+            </div>
+
+            <p id="system-message" class="text-sm text-slate-300 mt-1"></p>
+
+            <div id="slots-loading" class="mt-2 hidden text-xs text-slate-400">
+              読み込み中です…
+            </div>
+
+            <div class="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+              <h3 class="mb-2 text-xs font-semibold text-slate-200">
+                空き枠一覧
+              </h3>
+              <div id="slot-list" class="max-h-60 space-y-1 overflow-y-auto">
+                <p class="text-xs text-slate-500">
+                  「空き枠を読み込む」を押すと、この日に予約可能な時間が表示されます。
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="space-y-4">
+          <section class="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 shadow-xl shadow-black/40">
+            <h2 class="mb-3 text-xs font-semibold text-slate-100">
+              予約のポイント
+            </h2>
+            <ul class="space-y-2 text-xs text-slate-300">
+              <li class="flex gap-2">
+                <span class="mt-[3px] h-1.5 w-1.5 rounded-full bg-brand-gold"></span>
+                <span>日付を選択してから空き枠を表示できます。</span>
+              </li>
+              <li class="flex gap-2">
+                <span class="mt-[3px] h-1.5 w-1.5 rounded-full bg-brand-gold"></span>
+                <span>お名前は必須です。電話番号は折り返し連絡が必要な場合に使用します。</span>
+              </li>
+              <li class="flex gap-2">
+                <span class="mt-[3px] h-1.5 w-1.5 rounded-full bg-brand-gold"></span>
+                <span>予約完了後、LINEにて詳細をお送りします。</span>
+              </li>
+            </ul>
+          </section>
+
+          <section
+            id="success-panel"
+            class="hidden opacity-0 translate-y-4 rounded-2xl border border-emerald-500/40 bg-emerald-900/20 p-4 shadow-lg shadow-emerald-500/20 transition"
+          >
+            <h2 class="mb-1 text-xs font-semibold text-emerald-300">
+              予約が完了しました
+            </h2>
+            <p class="text-xs text-emerald-100 mb-3">
+              ありがとうございました。LINEアカウントに確認メッセージをお送りしましたので、ご確認ください。
+            </p>
+            <div class="flex flex-wrap gap-2 text-[11px]">
+              <button
+                type="button"
+                class="rounded-full border border-emerald-400/70 bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-100"
+              >
+                LINEのトーク画面を開いて確認する
+              </button>
+              <button
+                type="button"
+                class="rounded-full border border-slate-600 bg-slate-900/80 px-3 py-1 text-[11px] font-medium text-slate-200"
+              >
+                カレンダーに予定として追加する（ご自身のカレンダーアプリで）
+              </button>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </main>
+
+    <footer class="mt-8 border-t border-slate-800/80 bg-slate-950/80">
+      <div class="mx-auto max-w-3xl px-4 py-3 flex items-center justify-between text-[10px] text-slate-500">
+        <span>© Kazuki Group</span>
+        <span>Powered by LINE × Cloudflare Workers</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- 確認モーダル -->
+  <div
+    id="confirm-modal"
+    class="fixed inset-0 z-40 hidden items-center justify-center bg-black/60"
+  >
+    <div class="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl shadow-black/60">
+      <h2 class="mb-3 text-sm font-semibold text-slate-50">
+        この内容で予約してよろしいですか？
+      </h2>
+      <div class="mb-3 space-y-1 rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-xs text-slate-100">
+        <div><span class="text-slate-400">日付：</span><span id="confirm-date"></span></div>
+        <div><span class="text-slate-400">枠：</span><span id="confirm-slot"></span></div>
+        <div><span class="text-slate-400">お名前：</span><span id="confirm-name"></span></div>
+        <div><span class="text-slate-400">電話番号：</span><span id="confirm-phone"></span></div>
+      </div>
+      <p class="mb-4 text-[11px] text-slate-400">
+        内容にお間違いがなければ「この内容で予約する」を押してください。
+      </p>
+      <div class="flex justify-end gap-2 text-[11px]">
+        <button
+          id="confirmNo"
+          type="button"
+          class="rounded-full border border-slate-600 bg-slate-900 px-3 py-1 text-[11px] font-medium text-slate-200 hover:bg-slate-800"
+        >
+          戻って修正する
+        </button>
+        <button
+          id="confirmYes"
+          type="button"
+          class="rounded-full bg-gradient-to-r from-brand-gold via-amber-400 to-yellow-400 px-4 py-1.5 text-[11px] font-semibold text-slate-950 shadow-md shadow-amber-500/30 hover:brightness-105 active:scale-[0.98]"
+        >
+          この内容で予約する
+        </button>
+      </div>
+    </div>
+  </div>
+  <!-- カレンダー追加セクション -->
+  <section id="calendar-section" style="margin-top:32px; display:none;">
+    <div class="card" style="
+      border-radius:16px;
+      padding:20px;
+      border:1px solid rgba(255,255,255,0.06);
+      background:linear-gradient(135deg,rgba(255,255,255,0.04),rgba(0,0,0,0.4));
+      box-shadow:0 18px 45px rgba(0,0,0,0.55);
+    ">
+      <h2 style="font-size:18px; margin:0 0 8px;">カレンダーに追加する</h2>
+      <p id="calendar-summary" style="opacity:0.8; margin:0 0 16px;">
+        予約内容を Google / Apple カレンダーに登録できます。
+      </p>
+      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        <button id="btn-google-calendar" type="button" style="
+          padding:10px 16px;
+          border-radius:999px;
+          border:none;
+          cursor:pointer;
+          font-weight:600;
+        ">
+          Google カレンダーに追加
+        </button>
+        <button id="btn-ics-calendar" type="button" style="
+          padding:10px 16px;
+          border-radius:999px;
+          border:none;
+          cursor:pointer;
+          font-weight:600;
+          opacity:0.9;
+        ">
+          Apple / 他カレンダー (.ics)
+        </button>
+      </div>
+    </div>
+  </section>
+<script>
+  // 予約情報 → カレンダー用の日時文字列(YYYYMMDDTHHmmssZ)に整形
+  function toCalTime(iso) {
+    const d = new Date(iso);
+    const pad = (n) => String(n).padStart(2, "0");
+    const yyyy = d.getUTCFullYear();
+    const mm   = pad(d.getUTCMonth() + 1);
+    const dd   = pad(d.getUTCDate());
+    const hh   = pad(d.getUTCHours());
+    const mi   = pad(d.getUTCMinutes());
+    const ss   = pad(d.getUTCSeconds());
+    return `${yyyy}${mm}${dd}T${hh}${mi}${ss}Z`;
+  }
+
+  function buildGoogleCalendarUrl(info) {
+    const start = toCalTime(info.start);
+    const end   = toCalTime(info.end);
+    const text  = encodeURIComponent(info.title || "ご予約");
+    const details = encodeURIComponent(info.description || "");
+    const params =
+      `action=TEMPLATE&text=${text}&dates=${start}/${end}&details=${details}`;
+    return `https://www.google.com/calendar/render?${params}`;
+  }
+
+  function downloadIcs(info) {
+    const start = toCalTime(info.start);
+    const end   = toCalTime(info.end);
+    const uid   = `booking-${Date.now()}@kazukigroup.org`;
+    const now   = toCalTime(new Date().toISOString());
+
+    const esc = (s) =>
+      String(s || "").replace(/\\n/g, "\\n").replace(/,/g, "\\,");
+    const title = esc(info.title || "ご予約");
+    const desc  = esc(info.description || "");
+
+    const icsLines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Kazuki Group//Booking//JP",
+      "CALSCALE:GREGORIAN",
+      "BEGIN:VEVENT",
+      `UID:${uid}`,
+      `DTSTAMP:${now}`,
+      `DTSTART:${start}`,
+      `DTEND:${end}`,
+      `SUMMARY:${title}`,
+      `DESCRIPTION:${desc}`,
+      "END:VEVENT",
+      "END:VCALENDAR"
+    ];
+
+    const blob = new Blob([icsLines.join("\\r\\n")], {
+      type: "text/calendar;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "reservation.ics";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  // 予約完了後に呼び出すエントリポイント
+  // info: { start, end, label, name, slotId }
+  window.showCalendarOptions = function (info) {
+    const section = document.getElementById("calendar-section");
+    const summary = document.getElementById("calendar-summary");
+    const btnG    = document.getElementById("btn-google-calendar");
+    const btnIcs  = document.getElementById("btn-ics-calendar");
+    if (!section || !summary || !btnG || !btnIcs) return;
+
+    const label = info.label || "";
+    const name  = info.name || "";
+    const baseTitle = name ? `${name} さんのご予約` : "ご予約";
+    const title = label ? `${baseTitle}（${label}）` : baseTitle;
+
+    summary.textContent = label
+      ? `「${label}」の予約をカレンダーに登録できます。`
+      : "予約内容をカレンダーに登録できます。";
+
+    const payload = {
+      start: info.start,
+      end: info.end,
+      title,
+      description: `Slot: ${info.slotId || ""}`,
+    };
+
+    btnG.onclick = () => {
+      const url = buildGoogleCalendarUrl(payload);
+      window.open(url, "_blank", "noopener");
+    };
+
+    btnIcs.onclick = () => {
+      downloadIcs(payload);
+    };
+
+    section.style.display = "block";
+  };
+</script>
+</body>
+</html>
