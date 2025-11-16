@@ -2,6 +2,19 @@ import { tryHandleBookingUiREST } from "./booking-ui-rest";
 import { Hono } from "hono";
 import { publicApi } from "./routes/public";
 
+// ==== 予約一覧用の型 ==================================
+type Reservation = {
+  id: string;
+  slotId: string;
+  date: string;      // YYYY-MM-DD
+  start: string;     // ISO string or "HH:mm"
+  end: string;       // ISO string or "HH:mm"
+  name: string;
+  channel?: string;
+  note?: string;
+  createdAt: string; // ISO string
+};
+
 // ---- Durable Object (stub for wiring) ----
 export class SlotLockV4 {
   state: DurableObjectState; env: any;
@@ -34,7 +47,7 @@ app.get("/__env", (c: any) => {
 });
 
 // ` (auto-sanitized)
-/** ==== /injected ==== */
+/** ==== /injected ==== */
 // __ENV_ROUTES_START__
 app.get("/__env", (c: any) => {
   const runtimeEnv = __resolveEnv(c);
@@ -72,17 +85,79 @@ app.get("/__health", async (c: any) => {
 // __ENV_ROUTES_END__
 
 
+// ======================================================
+// 🔐 管理者向け 予約一覧 API (/admin/reservations)
+// ======================================================
+//
+// - GET /admin/reservations?date=YYYY-MM-DD
+// - GET /admin/reservations?from=YYYY-MM-DD&to=YYYY-MM-DD
+//
+// 環境変数 BOOKING_ADMIN_TOKEN が設定されている場合は Bearer 認証を要求。
+// 設定されていない場合は認証なし（ローカル/テスト用）。
+//
+// 予約データは KV (env.LINE_BOOKING) から取得。
+// prefix "resv:" は実際の保存形式に合わせて変更してOK。
+// ======================================================
 
+app.get("/admin/reservations", async (c: any) => {
+  const url = new URL(c.req.raw.url);
 
+  // --- optional: Bearer 認証（BOOKING_ADMIN_TOKEN があるときだけ有効） ---
+  const adminToken = (c.env as any).BOOKING_ADMIN_TOKEN as string | undefined;
+  if (adminToken) {
+    const auth = c.req.raw.headers.get("authorization") || "";
+    const token = auth.startsWith("Bearer ")
+      ? auth.substring("Bearer ".length)
+      : "";
+    if (token !== adminToken) {
+      return c.text("Unauthorized", 401);
+    }
+  }
 
+  const date = url.searchParams.get("date") ?? undefined;
+  const from = url.searchParams.get("from") ?? undefined;
+  const to   = url.searchParams.get("to")   ?? undefined;
 
+  const kv = (c.env as any).LINE_BOOKING as KVNamespace;
 
+  // 👇 prefix は実際の予約保存キーに合わせて変更してOK
+  const list = await kv.list({ prefix: "resv:" });
 
+  const reservations: Reservation[] = [];
 
+  for (const key of list.keys) {
+    const value: any = await kv.get(key.name, "json");
+    if (!value) continue;
 
+    const r: Reservation = {
+      id: value.id ?? key.name,
+      slotId: value.slotId,
+      date: value.date,
+      start: value.start,
+      end: value.end,
+      name: value.name,
+      channel: value.channel,
+      note: value.note,
+      createdAt: value.createdAt ?? new Date().toISOString(),
+    };
 
+    // 日付フィルタ
+    if (date && r.date !== date) continue;
+    if (from && r.date < from)   continue;
+    if (to && r.date > to)       continue;
 
+    reservations.push(r);
+  }
 
+  // 日付＋時間でソート（テンプレじゃなく普通の文字列連結）
+  reservations.sort((a, b) => {
+    const ak = a.date + "T" + a.start;
+    const bk = b.date + "T" + b.start;
+    return ak.localeCompare(bk);
+  });
+
+  return c.json({ reservations });
+});
 
 
 
@@ -95,10 +170,8 @@ app.get("/__health", async (c: any) => {
 const __orig = app;
 export default {
   async fetch(request: Request, env: any, ctx: any) {
-    const maybe = await tryHandleBookingUiREST(request as Request, env as any); if (maybe) return maybe;
-return __orig.fetch(request, env, ctx);
+    const maybe = await tryHandleBookingUiREST(request as Request, env as any);
+    if (maybe) return maybe;
+    return __orig.fetch(request, env, ctx);
   }
 };
-
-
-
