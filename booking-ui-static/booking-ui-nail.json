@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "page": {
+    "id": "nail",
+    "title": "Kazuki Nail Booking",
+    "subtitle": "ジェル・ケア・アートのご予約",
+    "theme": "white-deepblue-gold"
+  },
+  "api": {
+    "baseUrl": "https://saas-api-staging.hekuijincun.workers.dev",
+    "slotsPath": "/line/slots",
+    "reservePath": "/line/reserve"
+  },
+  "layout": {
+    "sections": [
+      {
+        "id": "booking-form",
+        "type": "form",
+        "title": "予約情報",
+        "props": {
+          "fields": [
+            {
+              "id": "name",
+              "label": "お名前（任意）",
+              "inputType": "text",
+              "placeholder": "山田 太郎",
+              "required": false
+            },
+            {
+              "id": "note",
+              "label": "メモ（任意）",
+              "inputType": "textarea",
+              "placeholder": "メニューや希望など",
+              "required": false,
+              "rows": 2
+            }
+          ]
+        }
+      },
+      {
+        "id": "slots",
+        "type": "slotList",
+        "title": "空き枠",
+        "props": {
+          "reloadButtonLabel": "再読み込み",
+          "emptyText": "空き枠がありません。",
+          "loadingText": "読み込み中...",
+          "slotLabelKey": "label",
+          "slotDetail": {
+            "startKey": "startTime",
+            "endKey": "endTime",
+            "remainingKey": "remaining"
+          },
+          "fullCondition": {
+            "statusKey": "status",
+            "fullValues": [
+              "full",
+              "closed"
+            ],
+            "isFullKey": "isFull"
+          }
+        }
+      },
+      {
+        "id": "status",
+        "type": "status",
+        "props": {
+          "successPrefix": "",
+          "errorPrefix": "エラー："
+        }
+      },
+      {
+        "id": "footer",
+        "type": "footer",
+        "props": {
+          "text": "LINEからの予約と連動したサンプルUIです。"
+        }
+      }
+    ]
+  }
+}
