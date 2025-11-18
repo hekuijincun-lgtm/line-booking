@@ -1,0 +1,2 @@
+notepad $slotsPath | Out-Null
+Write-Host "👆 上のイメージみたいにレスポンス部分を直して、保存したら PowerShell に戻ってね。" -ForegroundColor Cyan

@@ -21,7 +21,7 @@ function json(body: any, status = 200, extra: Record<string, string> = {}) {
 function formatJstLabel(isoStart: string, isoEnd: string): string {
   const toJst = (iso: string) => {
     const d = new Date(iso);
-    const j = new Date(d.getTime() + 9 * 60 * 60 * 1000); // +9h
+    const j = new Date(d.getTime() + 9 * 60 * 60 * 1000); // UTC → JST(+9h)
     const hh = j.getHours().toString().padStart(2, "0");
     const mm = j.getMinutes().toString().padStart(2, "0");
     return `${hh}:${mm}`;
@@ -45,6 +45,7 @@ export async function tryHandleBookingUiREST(
     });
   }
 
+  // --- GET /line/slots -----------------------------------------------------
   if (request.method === "GET" && url.pathname === "/line/slots") {
     const date = url.searchParams.get("date") ?? "";
     if (!qDate.safeParse(date).success) {
@@ -89,7 +90,7 @@ export async function tryHandleBookingUiREST(
       ];
     }
 
-    // ✅ label を付けて返す
+    // ✅ label を追加して返す
     return json({
       slots: slots.map((s) => ({
         ...s,
@@ -98,6 +99,7 @@ export async function tryHandleBookingUiREST(
     });
   }
 
+  // --- POST /line/reserve --------------------------------------------------
   if (request.method === "POST" && url.pathname === "/line/reserve") {
     const ReserveSchema = z.object({
       slotId: z.string().min(1),
