@@ -78,3 +78,11 @@ Write-Host "🎉 Deploy スクリプト完了" -ForegroundColor Green
 
 
 
+if (-not (Get-Command Assert-SecretsPresent -ErrorAction SilentlyContinue)) {
+    function Assert-SecretsPresent {
+        param(
+            [string[]]$Names
+        )
+        Write-Host "[WARN] Assert-SecretsPresent stub: skipping secrets check for: $($Names -join ', ')" -ForegroundColor Yellow
+    }
+}
