@@ -387,3 +387,4 @@ $js | Set-Content -Encoding UTF8 -Path $MainJs
 
 Write-Host "✅ main.js を multi-template 対応版として生成しました: $MainJs"
 Write-Host ""
+
