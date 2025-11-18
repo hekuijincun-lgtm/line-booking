@@ -4,7 +4,7 @@ param(
 )
 
 $urls = @{
-  "staging"    = "https://9045b7e3.booking-ui-4pk.pages.dev"  # ← 今の最新をメモ
+  "staging"    = "https://85283f05.booking-ui-4pk.pages.dev"  # ← 今の最新をメモ
   "production" = "https://kazukigroup.org/booking"
 }
 
@@ -21,6 +21,7 @@ if ($Target -eq "production" -or $Target -eq "both") {
 
 Write-Host "================================"
 Write-Host ""
+
 
 
 
