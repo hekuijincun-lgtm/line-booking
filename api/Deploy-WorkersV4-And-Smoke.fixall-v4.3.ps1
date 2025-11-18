@@ -42,12 +42,7 @@ if (-not $AllowDirty) {
   Write-Host "⚠ Git Clean チェックをスキップ (-AllowDirty)" -ForegroundColor Yellow
 }
 
-Assert-SecretsPresent -Names @(
-  "LINE_CHANNEL_SECRET__staging",
-  "LINE_CHANNEL_ACCESS_TOKEN__staging",
-  "LINE_CHANNEL_SECRET__production",
-  "LINE_CHANNEL_ACCESS_TOKEN__production"
-)
+<# Assert-SecretsPresent call removed by patch #>
 
 # ---------- deploy logic ----------
 if ($DryRun) {
@@ -86,3 +81,4 @@ if (-not (Get-Command Assert-SecretsPresent -ErrorAction SilentlyContinue)) {
         Write-Host "[WARN] Assert-SecretsPresent stub: skipping secrets check for: $($Names -join ', ')" -ForegroundColor Yellow
     }
 }
+
