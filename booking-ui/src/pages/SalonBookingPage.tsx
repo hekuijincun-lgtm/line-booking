@@ -11,10 +11,9 @@ type Slot = {
 };
 
 const mockSlots: Slot[] = [
-  { id: "s-10-00", label: "10:00", note: "空きあり", status: "available" },
-  { id: "s-12-00", label: "12:00", note: "空きあり", status: "available" },
-  { id: "s-15-00", label: "15:00", note: "残りわずか", status: "available" },
-  { id: "s-18-00", label: "18:00", note: "空きあり", status: "available" },
+  { id: "s-10-00", label: "10:00〜11:00", note: "空きあり", status: "available" },
+  { id: "s-12-00", label: "12:00〜13:00", note: "空きあり", status: "available" },
+  { id: "s-15-00", label: "15:00〜16:00", note: "残りわずか", status: "available" },
 ];
 
 const API_BASE =
@@ -31,6 +30,11 @@ const SalonBookingPage: React.FC = () => {
   const [slotsError, setSlotsError] = useState<string | null>(null);
 
   const [reserveMessage, setReserveMessage] = useState<string | null>(null);
+
+  // 🔹 連絡先
+  const [name, setName] = useState<string>("");
+  const [phone, setPhone] = useState<string>("");
+  const [note, setNote] = useState<string>("");
 
   useEffect(() => {
     const fetchSlots = async () => {
@@ -60,14 +64,14 @@ const SalonBookingPage: React.FC = () => {
           return;
         }
 
-        const mapped: Slot[] = rawSlots.map(function (s: any, index: number) {
+        const mapped: Slot[] = rawSlots.map((s: any, index: number) => {
           const id = s.slotId ?? s.id ?? String(index);
           const label =
             s.label ??
             s.time ??
             s.startsAt ??
             s.startTime ??
-            ("枠 " + String(index + 1));
+            "枠 " + (index + 1);
           const isBooked =
             (s.isBooked as boolean | undefined) ??
             (s.booked as boolean | undefined) ??
@@ -87,7 +91,7 @@ const SalonBookingPage: React.FC = () => {
         setSlotsError(
           "ただいま予約枠の取得に失敗しました。時間をおいて再度お試しください。"
         );
-        setSlots(mockSlots); // フォールバックでモック使用
+        setSlots(mockSlots);
       } finally {
         setIsLoadingSlots(false);
       }
@@ -102,12 +106,20 @@ const SalonBookingPage: React.FC = () => {
       return;
     }
 
+    if (!name.trim()) {
+      alert("お名前を入力してください。");
+      return;
+    }
+
     setIsSubmitting(true);
     setReserveMessage(null);
 
     try {
       const body = {
         slotId: selectedSlotId,
+        name: name,
+        phone: phone || null,
+        note: note || null,
         menuId: selectedMenuId,
         source: "web-ui",
       };
@@ -122,10 +134,11 @@ const SalonBookingPage: React.FC = () => {
 
       const text = await res.text();
       let json: any = null;
+
       try {
         json = text ? JSON.parse(text) : null;
       } catch {
-        // JSONじゃない場合もあるので無視
+        // JSON でない場合は無視
       }
 
       if (!res.ok) {
@@ -137,16 +150,18 @@ const SalonBookingPage: React.FC = () => {
       }
 
       const reservationId =
-        (json && json.reservationId) ??
-        (json && json.id) ??
-        (json && json.data && json.data.id) ??
+        (json && json.reservationId) ||
+        (json && json.id) ||
+        (json && json.data && json.data.id) ||
         null;
 
-      setReserveMessage(
-        reservationId
-          ? "ご予約を受け付けました。（予約ID: " + reservationId + "）"
-          : "ご予約を受け付けました。ありがとうございます。"
-      );
+      if (reservationId) {
+        setReserveMessage(
+          "ご予約を受け付けました。（予約ID: " + reservationId + "）"
+        );
+      } else {
+        setReserveMessage("ご予約を受け付けました。ありがとうございます。");
+      }
     } catch (err) {
       console.error("[BookingUI] reserve error:", err);
       setReserveMessage(
@@ -170,9 +185,7 @@ const SalonBookingPage: React.FC = () => {
         <div className="space-y-2 text-sm">
           <button
             type="button"
-            onClick={function () {
-              setSelectedMenuId("menu-cut-color");
-            }}
+            onClick={() => setSelectedMenuId("menu-cut-color")}
             className={
               "flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition " +
               (selectedMenuId === "menu-cut-color"
@@ -193,7 +206,7 @@ const SalonBookingPage: React.FC = () => {
         </div>
       </BookingCard>
 
-      {/* 日時を選択（API + フォールバック） */}
+      {/* 日時を選択 */}
       <BookingCard
         title="日時を選択"
         description={
@@ -208,7 +221,7 @@ const SalonBookingPage: React.FC = () => {
         )}
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {slots.map(function (slot) {
+          {slots.map((slot) => {
             const isSelected = slot.id === selectedSlotId;
             const isDisabled = slot.status === "booked";
 
@@ -217,9 +230,7 @@ const SalonBookingPage: React.FC = () => {
                 key={slot.id}
                 type="button"
                 disabled={isDisabled}
-                onClick={function () {
-                  setSelectedSlotId(slot.id);
-                }}
+                onClick={() => setSelectedSlotId(slot.id)}
                 className={
                   "flex flex-col items-center justify-center rounded-2xl border px-3 py-3 text-sm transition " +
                   (isDisabled
@@ -244,6 +255,51 @@ const SalonBookingPage: React.FC = () => {
             );
           })}
         </div>
+      </BookingCard>
+
+      {/* ご連絡先 */}
+      <BookingCard
+        title="ご連絡先"
+        description="ご予約確認のため、お名前とお電話番号をご入力ください。"
+      >
+        <div className="space-y-3 text-sm">
+          <div>
+            <label className="mb-1 block text-xs text-kb-textMuted">
+              お名前（必須）
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full rounded-2xl border border-kb-border bg-white px-3 py-2 text-sm text-kb-textMain focus:outline-none focus:ring-2 focus:ring-kb-navy/40 focus:border-kb-navy"
+              placeholder="例）山田 太郎"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-kb-textMuted">
+              お電話番号（任意）
+            </label>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="w-full rounded-2xl border border-kb-border bg-white px-3 py-2 text-sm text-kb-textMain focus:outline-none focus:ring-2 focus:ring-kb-navy/40 focus:border-kb-navy"
+              placeholder="例）090-1234-5678"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-kb-textMuted">
+              メモ（任意）
+            </label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="w-full rounded-2xl border border-kb-border bg-white px-3 py-2 text-sm text-kb-textMain focus:outline-none focus:ring-2 focus:ring-kb-navy/40 focus:border-kb-navy"
+              placeholder="メニューやご希望など"
+              rows={3}
+            />
+          </div>
+        </div>
 
         {reserveMessage && (
           <div className="mt-3 text-xs text-kb-textMuted">
@@ -255,7 +311,7 @@ const SalonBookingPage: React.FC = () => {
           fullWidth
           onClick={handleReserveClick}
           disabled={isSubmitting}
-          className={isSubmitting ? "opacity-80" : ""}
+          className={isSubmitting ? "mt-4 opacity-80" : "mt-4"}
         >
           {isSubmitting
             ? "予約処理中..."
