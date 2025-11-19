@@ -2,7 +2,8 @@ import { z } from "zod";
 import { notifyLine } from "./lib/line-notify";
 
 export interface Env {
-  LINE_BOOKING: KVNamespace;`n  LINE_NOTIFY_TOKEN: string;
+  LINE_BOOKING: KVNamespace;
+  LINE_MESSAGING_ACCESS_TOKEN: string;
 }
 
 // yyyy-MM-dd 形式
@@ -191,7 +192,8 @@ if (request.method === "POST" && url.pathname === "/line/notify") {
       );
     }
 
-    const msgLines = [
+    console.log("LINE_MESSAGING_ACCESS_TOKEN length", env.LINE_MESSAGING_ACCESS_TOKEN.length);
+const msgLines = [
       "🙇‍♀️ご予約ありがとうございます！",
       "🔑 予約ID: " + reserveId,
       "",
@@ -200,7 +202,7 @@ if (request.method === "POST" && url.pathname === "/line/notify") {
 
     const msg = msgLines.join("\n");
 
-        await notifyLine(env.LINE_NOTIFY_TOKEN, msg);
+        await notifyLine(msg, env.LINE_MESSAGING_ACCESS_TOKEN);
 
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
@@ -208,7 +210,7 @@ if (request.method === "POST" && url.pathname === "/line/notify") {
     });
   } catch (err) {
     console.error("lineNotify error", err);
-    return new Response(JSON.stringify({ ok: false }), {
+    return new Response(JSON.stringify({ ok: false, error: String(err) }), {
       status: 500,
       headers: { "Content-Type": "application/json; charset=utf-8" },
     });
@@ -222,4 +224,9 @@ if (request.method === "POST" && url.pathname === "/line/notify") {
 type LineNotifyBody = {
   reserveId?: string;
 };
+
+
+
+
+
 
