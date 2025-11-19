@@ -4,16 +4,9 @@ export async function notifyLine(
 ): Promise<void> {
   const endpoint = "https://api.line.me/v2/bot/message/broadcast";
 
-  // 元の値も保持
+  // シークレット由来の値を防御的にクリーンアップ
   const raw = accessToken ?? "";
-  // 改行削除 + trim
   const token = raw.replace(/[\r\n]/g, "").trim();
-
-    rawLength: raw.length,
-    tokenLength: token.length,
-    head: token.slice(0, 10),
-    tail: token.slice(-6),
-  });
 
   if (!token) {
     console.error("notifyLine: LINE_MESSAGING_ACCESS_TOKEN is empty");
