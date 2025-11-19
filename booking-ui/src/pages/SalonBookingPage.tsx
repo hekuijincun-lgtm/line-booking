@@ -13,7 +13,7 @@ type Slot = {
 const mockSlots: Slot[] = [
   { id: "s-10-00", label: "10:00〜11:00", note: "空きあり", status: "available" },
   { id: "s-12-00", label: "12:00〜13:00", note: "空きあり", status: "available" },
-  { id: "s-15-00", label: "15:00〜16:00", note: "残りわずか", status: "available" },
+  { id: "s-15-00", label: "15:00〜16:00", note: "空きあり", status: "available" },
 ];
 
 const API_BASE =
@@ -31,10 +31,10 @@ const SalonBookingPage: React.FC = () => {
 
   const [reserveMessage, setReserveMessage] = useState<string | null>(null);
 
-  // 🔹 連絡先
+  // 連絡先
   const [name, setName] = useState<string>("");
   const [phone, setPhone] = useState<string>("");
-  const [note, setNote] = useState<string>("");
+  const [memo, setMemo] = useState<string>("");
 
   useEffect(() => {
     const fetchSlots = async () => {
@@ -71,15 +71,15 @@ const SalonBookingPage: React.FC = () => {
             s.time ??
             s.startsAt ??
             s.startTime ??
-            "枠 " + (index + 1);
+            "枠 " + String(index + 1);
           const isBooked =
             (s.isBooked as boolean | undefined) ??
             (s.booked as boolean | undefined) ??
             (s.available === false);
 
           return {
-            id: id,
-            label: label,
+            id,
+            label,
             note: !isBooked ? s.note ?? "空きあり" : s.note ?? "予約済み",
             status: isBooked ? "booked" : "available",
           };
@@ -117,9 +117,9 @@ const SalonBookingPage: React.FC = () => {
     try {
       const body = {
         slotId: selectedSlotId,
-        name: name,
+        name,
         phone: phone || null,
-        note: note || null,
+        memo: memo || null,
         menuId: selectedMenuId,
         source: "web-ui",
       };
@@ -134,11 +134,10 @@ const SalonBookingPage: React.FC = () => {
 
       const text = await res.text();
       let json: any = null;
-
       try {
         json = text ? JSON.parse(text) : null;
       } catch {
-        // JSON でない場合は無視
+        // JSON でない場合はそのまま無視
       }
 
       if (!res.ok) {
@@ -150,17 +149,38 @@ const SalonBookingPage: React.FC = () => {
       }
 
       const reservationId =
-        (json && json.reservationId) ||
-        (json && json.id) ||
-        (json && json.data && json.data.id) ||
-        null;
+        json?.reservationId ?? json?.id ?? json?.data?.id ?? null;
 
+      // 予約メッセージ
       if (reservationId) {
         setReserveMessage(
-          "ご予約を受け付けました。（予約ID: " + reservationId + "）"
+          "ご予約を受け付けました。（予約ID: " + String(reservationId) + "）"
         );
       } else {
         setReserveMessage("ご予約を受け付けました。ありがとうございます。");
+      }
+
+      // 🔔 予約成功時に /line/notify を叩いて LINE に通知
+      if (reservationId) {
+        try {
+          fetch(API_BASE + "/line/notify", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              reserveId: reservationId,
+              source: "web-ui",
+            }),
+          }).catch((err) => {
+            console.error(
+              "[BookingUI] failed to call /line/notify (network error)",
+              err
+            );
+          });
+        } catch (err) {
+          console.error("[BookingUI] failed to enqueue /line/notify", err);
+        }
       }
     } catch (err) {
       console.error("[BookingUI] reserve error:", err);
@@ -264,7 +284,7 @@ const SalonBookingPage: React.FC = () => {
       >
         <div className="space-y-3 text-sm">
           <div>
-            <label className="mb-1 block text-xs text-kb-textMuted">
+            <label className="block text-xs text-kb-textMuted mb-1">
               お名前（必須）
             </label>
             <input
@@ -276,7 +296,7 @@ const SalonBookingPage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-kb-textMuted">
+            <label className="block text-xs text-kb-textMuted mb-1">
               お電話番号（任意）
             </label>
             <input
@@ -288,12 +308,12 @@ const SalonBookingPage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-kb-textMuted">
+            <label className="block text-xs text-kb-textMuted mb-1">
               メモ（任意）
             </label>
             <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
+              value={memo}
+              onChange={(e) => setMemo(e.target.value)}
               className="w-full rounded-2xl border border-kb-border bg-white px-3 py-2 text-sm text-kb-textMain focus:outline-none focus:ring-2 focus:ring-kb-navy/40 focus:border-kb-navy"
               placeholder="メニューやご希望など"
               rows={3}
