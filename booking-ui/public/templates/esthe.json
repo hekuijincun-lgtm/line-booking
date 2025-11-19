@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "note": "必要に応じて編集してください",
+    "tags": [
+      "esthe",
+      "booking"
+    ]
+  },
+  "layout": {
+    "sections": [
+      {
+        "type": "features",
+        "title": "選ばれる理由",
+        "items": [
+          {
+            "description": "ここに特徴1の説明を入れる",
+            "title": "特徴1"
+          },
+          {
+            "description": "ここに特徴2の説明を入れる",
+            "title": "特徴2"
+          }
+        ]
+      }
+    ],
+    "hero": {
+      "image": "/img/esthe/hero.webp",
+      "ctaLabel": "今すぐ予約する",
+      "subtitle": "プレミアム体験をオンラインで簡単予約",
+      "title": "Esthe 予約",
+      "description": "Esthe 用の説明文をここに書く"
+    }
+  },
+  "brand": {
+    "accent": "#D4AF37",
+    "surface": "#FFFFFF",
+    "primary": "#0A1A2F"
+  },
+  "name": "Esthe",
+  "slug": "esthe"
+}

@@ -4,14 +4,28 @@ export interface Env {
   LINE_BOOKING: KVNamespace;
 }
 
+// yyyy-MM-dd 形式
 const qDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
+// JSTの「今日」を yyyy-MM-dd で返す
+function getTodayJstDate(): string {
+  const now = new Date();
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000); // UTC → JST(+9h)
+  const y = jst.getFullYear();
+  const m = (jst.getMonth() + 1).toString().padStart(2, "0");
+  const d = jst.getDate().toString().padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+// 共通JSONレスポンス（CORS付き）
 function json(body: any, status = 200, extra: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       "content-type": "application/json",
       "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type,Authorization",
       ...extra,
     },
   });
@@ -35,8 +49,10 @@ export async function tryHandleBookingUiREST(
 ): Promise<Response | undefined> {
   const url = new URL(request.url);
 
+  // --- CORS / OPTIONS ------------------------------------------------------
   if (request.method === "OPTIONS") {
     return new Response(null, {
+      status: 204,
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
@@ -47,9 +63,10 @@ export async function tryHandleBookingUiREST(
 
   // --- GET /line/slots -----------------------------------------------------
   if (request.method === "GET" && url.pathname === "/line/slots") {
-    const date = url.searchParams.get("date") ?? "";
+    // UI から date 指定がなければ「今日(JST)」を使う
+    let date = url.searchParams.get("date") ?? "";
     if (!qDate.safeParse(date).success) {
-      return json({ error: "bad date" }, 400);
+      date = getTodayJstDate();
     }
 
     let slots: any[] | null = null;
@@ -58,8 +75,11 @@ export async function tryHandleBookingUiREST(
       if (raw && Array.isArray(raw)) {
         slots = raw as any[];
       }
-    } catch {}
+    } catch {
+      // KVエラー時はフォールバックに進む
+    }
 
+    // KVに無ければデモ用の枠を生成
     if (!slots) {
       const base = new Date(`${date}T00:00:00+09:00`).getTime();
       const mk = (h: number) =>
@@ -90,8 +110,9 @@ export async function tryHandleBookingUiREST(
       ];
     }
 
-    // ✅ label を追加して返す
+    // ✅ label を追加して返す（UI側は label をそのまま表示）
     return json({
+      date,
       slots: slots.map((s) => ({
         ...s,
         label: formatJstLabel(s.start, s.end),
@@ -101,12 +122,18 @@ export async function tryHandleBookingUiREST(
 
   // --- POST /line/reserve --------------------------------------------------
   if (request.method === "POST" && url.pathname === "/line/reserve") {
-    const ReserveSchema = z.object({
-      slotId: z.string().min(1),
-      name: z.string().min(1),
-      phone: z.string().optional().nullable(),
-      note: z.string().optional().nullable(),
-    });
+    // UI からは { slotId, menuId, source } が飛んでくる想定
+    // name / phone / note はオプション扱いにして、name が無い場合は「Web予約」にする
+    const ReserveSchema = z
+      .object({
+        slotId: z.string().min(1),
+        menuId: z.string().optional(),
+        source: z.string().optional(),
+        name: z.string().min(1).optional(),
+        phone: z.string().optional().nullable(),
+        note: z.string().optional().nullable(),
+      })
+      .passthrough(); // 将来フィールド追加されても落とさない
 
     const body = await request.json().catch(() => ({}));
     const parsed = ReserveSchema.safeParse(body);
@@ -118,20 +145,32 @@ export async function tryHandleBookingUiREST(
       );
     }
 
+    const data = parsed.data;
+
     const id = crypto.randomUUID();
     const rec = {
       id,
-      ...parsed.data,
+      slotId: data.slotId,
+      menuId: data.menuId ?? null,
+      source: data.source ?? "web-ui",
+      name:
+        typeof data.name === "string" && data.name.trim().length > 0
+          ? data.name.trim()
+          : "Web予約",
+      phone: data.phone ?? null,
+      note: data.note ?? null,
       createdAt: new Date().toISOString(),
       status: "reserved",
     };
 
     await env.LINE_BOOKING.put(`resv:${id}`, JSON.stringify(rec), {
-      expirationTtl: 60 * 60 * 24 * 7,
+      expirationTtl: 60 * 60 * 24 * 7, // 7日で自動削除
     });
 
-    return json({ ok: true, id });
+    // UI 側は reservationId / id のどちらでも拾えるようにしておく
+    return json({ ok: true, id, reservationId: id });
   }
 
+  // このハンドラの対象外
   return undefined;
 }

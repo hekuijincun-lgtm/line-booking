@@ -1,0 +1,72 @@
+import React from "react";
+
+type BookingLayoutProps = {
+  title?: string;
+  subtitle?: string;
+  children: React.ReactNode;
+};
+
+const BookingLayout: React.FC<BookingLayoutProps> = ({
+  title = "Kazuki Booking",
+  subtitle = "サロン予約を、もっとスマートに。",
+  children,
+}) => {
+  return (
+    <div className="min-h-screen bg-kb-bg text-kb-textMain">
+      {/* Header */}
+      <header className="border-b border-kb-border bg-white/70 backdrop-blur-md">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4 md:px-6">
+          <div className="flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-kb-navy">
+              <span className="text-sm font-semibold tracking-wide text-kb-gold">
+                KB
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-sm font-semibold tracking-wide text-kb-navy">
+                Kazuki Booking
+              </span>
+              <span className="text-xs text-kb-textMuted">
+                Premium Online Reservation
+              </span>
+            </div>
+          </div>
+          <div className="hidden gap-3 text-xs md:flex">
+            <span className="rounded-full border border-kb-border px-3 py-1 text-kb-textMuted">
+              安心のLINE連携
+            </span>
+            <span className="rounded-full border border-kb-border px-3 py-1 text-kb-textMuted">
+              24時間オンライン予約
+            </span>
+          </div>
+        </div>
+      </header>
+
+      {/* Main */}
+      <main className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6 md:px-6 md:py-8">
+        {/* Hero */}
+        <section className="space-y-3">
+          <h1 className="text-2xl font-semibold tracking-tight text-kb-navy md:text-3xl">
+            {title}
+          </h1>
+          <p className="max-w-xl text-sm text-kb-textMuted md:text-base">
+            {subtitle}
+          </p>
+        </section>
+
+        {/* Content */}
+        {children}
+      </main>
+
+      {/* Footer */}
+      <footer className="mt-8 border-t border-kb-border bg-white/70">
+        <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-2 px-4 py-4 text-[11px] text-kb-textMuted md:flex-row md:px-6">
+          <span>© {new Date().getFullYear()} Kazuki Booking</span>
+          <span>Powered by LINE × Cloudflare × Kazuki Factory</span>
+        </div>
+      </footer>
+    </div>
+  );
+};
+
+export default BookingLayout;

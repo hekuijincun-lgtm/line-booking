@@ -1,0 +1,29 @@
+# Kazuki Booking Template DSL Schema (v1)
+# 各テンプレートはこの形に揃える
+
+name: string          # 表示名（例: "Esthe"）
+slug: string          # URLやクエリで使うID（例: "esthe"）
+
+brand:
+  primary: string     # メインカラー（例: "#0A1A2F"）
+  accent: string      # アクセントカラー（例: "#D4AF37"）
+  surface: string     # 背景カラー（例: "#FFFFFF"）
+
+layout:
+  hero:
+    title: string
+    subtitle: string
+    description: string
+    image: string     # 相対パス or URL
+    ctaLabel: string
+  sections:
+    - type: string    # "features" | "steps" | "faq" など
+      title: string
+      items:
+        - title: string
+          description: string
+
+meta:
+  tags:
+    - string
+  note: string

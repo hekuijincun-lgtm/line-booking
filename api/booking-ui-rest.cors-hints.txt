@@ -1,0 +1,39 @@
+// ==========================
+// ① booking-ui-rest.ts の先頭付近に追記
+// ==========================
+
+import { corsHeaders, handleCorsOptions, withCors } from "./booking-cors";
+
+// ==========================
+// ② export default の fetch 内での使い方イメージ
+//    （既存のコードに合わせて手でマージしてね）
+// ==========================
+//
+// export default {
+//   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+//     // 追加: CORS の OPTIONS 対応
+//     if (request.method === "OPTIONS") {
+//       return handleCorsOptions(request);
+//     }
+//
+//     // ↓ここから先は、もともとのルーティングロジック
+//     const url = new URL(request.url);
+//
+//     if (url.pathname === "/line/slots" && request.method === "GET") {
+//       const result = await handleLineSlots(request, env, ctx); // 既存の処理
+//       return withCors(result);
+//     }
+//
+//     if (url.pathname === "/line/reserve" && request.method === "POST") {
+//       const result = await handleLineReserve(request, env, ctx); // 既存の処理
+//       return withCors(result);
+//     }
+//
+//     // そのほかのルートも、最終的に withCors でラップするイメージ:
+//     const result = await router.fetch(request, env, ctx);
+//     return withCors(result);
+//   },
+// };
+//
+// ※ 実際の関数名（handleLineSlots / handleLineReserve / router など）は
+//    現在の booking-ui-rest.ts に合わせて書き換えてOK。

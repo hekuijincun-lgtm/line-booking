@@ -1,0 +1,36 @@
+{
+  "meta": {
+    "note": "string",
+    "tags": [
+      "string"
+    ]
+  },
+  "layout": {
+    "sections": [
+      {
+        "type": "string",
+        "title": "string",
+        "items": [
+          {
+            "description": "string",
+            "title": "string"
+          }
+        ]
+      }
+    ],
+    "hero": {
+      "image": "string",
+      "ctaLabel": "string",
+      "subtitle": "string",
+      "title": "string",
+      "description": "string"
+    }
+  },
+  "brand": {
+    "accent": "string",
+    "surface": "string",
+    "primary": "string"
+  },
+  "name": "string",
+  "slug": "string"
+}
