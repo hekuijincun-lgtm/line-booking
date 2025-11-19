@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { notifyLine } from "./lib/line-notify";
 
 export interface Env {
-  LINE_BOOKING: KVNamespace;
+  LINE_BOOKING: KVNamespace;`n  LINE_NOTIFY_TOKEN: string;
 }
 
 // yyyy-MM-dd 形式
@@ -171,6 +172,54 @@ export async function tryHandleBookingUiREST(
     return json({ ok: true, id, reservationId: id });
   }
 
+type BookingLineNotifyBody = {
+  reserveId?: string;
+};
+
+if (request.method === "POST" && url.pathname === "/line/notify") {
+  try {
+    const body = (await request.json()) as BookingLineNotifyBody;
+    const reserveId = body.reserveId;
+
+    if (!reserveId) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "reserveId required" }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+        },
+      );
+    }
+
+    const msgLines = [
+      "🙇‍♀️ご予約ありがとうございます！",
+      "🔑 予約ID: " + reserveId,
+      "",
+      "変更・キャンセルをご希望の場合はこちらからご連絡ください✨",
+    ];
+
+    const msg = msgLines.join("\n");
+
+        await notifyLine(env.LINE_NOTIFY_TOKEN, msg);
+
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+    });
+  } catch (err) {
+    console.error("lineNotify error", err);
+    return new Response(JSON.stringify({ ok: false }), {
+      status: 500,
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+    });
+  }
+}
+
   // このハンドラの対象外
   return undefined;
 }
+
+type LineNotifyBody = {
+  reserveId?: string;
+};
+
