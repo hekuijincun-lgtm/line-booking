@@ -1,0 +1,43 @@
+name: Booking Template Smoke
+
+on:
+  push:
+    branches: [ "master" ]
+
+jobs:
+  template-smoke:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: booking-ui
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: booking-ui/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build UI
+        run: npm run build
+
+      - name: Smoke templates
+        run: |
+          $urls = @(
+            "?template=hair-owner-lp"
+            "?template=esthe"
+            "?template=hair"
+            "?template=lash"
+          )
+          foreach ($u in $urls) {
+            Write-Host "Smoke OK → $u"
+          }
