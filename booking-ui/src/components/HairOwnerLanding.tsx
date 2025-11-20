@@ -8,7 +8,6 @@ export const HairOwnerLanding: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-24">
       <main className="max-w-3xl mx-auto px-4 pt-6 pb-24 space-y-8">
-
         {/* HERO */}
         <section className="space-y-3">
           <p className="inline-flex items-center gap-2 text-[11px] font-semibold text-amber-700 bg-amber-50 px-3 py-1 rounded-full">
@@ -19,17 +18,20 @@ export const HairOwnerLanding: React.FC = () => {
           </h1>
           <p className="text-sm text-slate-600">
             Kazuki Booking は{" "}
-            <span className="font-semibold">“人力で回している予約運営” を自動化するLINE予約仕組み化パッケージ</span> です。
+            <span className="font-semibold">
+              人力で回している予約運営 を自動化するLINE予約仕組み化パッケージ
+            </span>
+            です。
           </p>
         </section>
 
-        {/* ⚡ 刺さる Before / After */}
+        {/* Before / After */}
         <section className="grid md:grid-cols-2 gap-4">
           <div className="bg-white border border-rose-100 rounded-2xl p-4 space-y-2">
             <p className="text-xs font-semibold text-rose-500">Before（導入前）</p>
             <ul className="text-xs text-slate-700 space-y-1.5">
               <li>・電話・DM対応で毎日1〜2時間奪われる</li>
-              <li>・予約管理がノート/LIN E /ホットペッパーでバラつく</li>
+              <li>・予約管理がノート / LINE / ホットペッパーでバラつく</li>
               <li>・予約抜け・ダブルブッキングが常に怖い</li>
               <li>・新規は来るのに2回目に繋がらない</li>
               <li>・値下げしないと新規が動かない気がする</li>
@@ -42,13 +44,13 @@ export const HairOwnerLanding: React.FC = () => {
               <li>・予約はすべてLINEが自動受付 → 施術に集中できる</li>
               <li>・空き枠・キャンセル・リマインドの自動化</li>
               <li>・理想の客層だけが集まる予約導線をLINEに構築</li>
-              <li>・来店履歴&メニューから次回提案が簡単</li>
+              <li>・来店履歴とメニューから次回提案が簡単</li>
               <li>・オーナー不在でも予約運営が止まらない</li>
             </ul>
           </div>
         </section>
 
-        {/* CTA */}
+        {/* メインCTA */}
         <section className="bg-slate-900 text-slate-50 rounded-2xl p-6 space-y-3">
           <h2 className="text-lg font-semibold">
             まずは「今の予約導線のどこがボトルネック？」を一緒に棚卸ししませんか？
@@ -66,6 +68,93 @@ export const HairOwnerLanding: React.FC = () => {
           <p className="text-[10px] text-slate-400 mt-1">
             ※強引な営業は一切なし／スタンプだけで終了OK
           </p>
+        </section>
+
+        {/* 料金イメージ */}
+        <section className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+          <h2 className="text-base font-semibold">料金イメージ</h2>
+          <p className="text-xs text-slate-500">
+            サロンの席数・スタッフ数・メニュー構成に合わせて個別にお見積りします。
+            下記はあくまで目安の料金です。
+          </p>
+          <div className="grid md:grid-cols-3 gap-4 text-xs">
+            <div className="border border-slate-200 rounded-2xl p-4 space-y-1">
+              <p className="font-semibold">ライトプラン</p>
+              <p className="text-sm font-bold">月額 19,800円〜</p>
+              <ul className="text-slate-600 space-y-1">
+                <li>・LINE予約＋カレンダー連携</li>
+                <li>・基本的な自動リマインド</li>
+                <li>・個人サロン / 席数少なめ向け</li>
+              </ul>
+            </div>
+            <div className="border border-amber-300 bg-amber-50 rounded-2xl p-4 space-y-1">
+              <p className="font-semibold text-amber-700">スタンダード（人気）</p>
+              <p className="text-sm font-bold">月額 29,800円〜</p>
+              <ul className="text-slate-700 space-y-1">
+                <li>・リピートを意識した予約導線設計</li>
+                <li>・キャンセル穴埋め用の一斉配信サポート</li>
+                <li>・2〜4席のサロンにおすすめ</li>
+              </ul>
+            </div>
+            <div className="border border-slate-200 rounded-2xl p-4 space-y-1">
+              <p className="font-semibold">プレミアム</p>
+              <p className="text-sm font-bold">月額 49,800円〜</p>
+              <ul className="text-slate-600 space-y-1">
+                <li>・複数スタッフ / 複数メニューの同時管理</li>
+                <li>・回数券 / サブスクメニューに対応</li>
+                <li>・2店舗展開を見据えた設計相談</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        {/* 導入イメージ */}
+        <section className="bg-slate-50 rounded-2xl border border-slate-200 p-6 space-y-3">
+          <h2 className="text-base font-semibold">導入後のイメージ</h2>
+          <ul className="text-xs text-slate-700 space-y-1.5">
+            <li>・毎日の電話対応がほぼゼロに（LINEが一次対応）</li>
+            <li>・予約カレンダーと来店履歴が1つの画面で確認できる</li>
+            <li>・2回目・3回目に繋がるメッセージが自動で届く</li>
+            <li>・売上の山谷が見える化され、打ち手を考えやすくなる</li>
+          </ul>
+        </section>
+
+        {/* FAQ */}
+        <section className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+          <h2 className="text-base font-semibold">よくあるご質問</h2>
+
+          <div className="space-y-3 text-sm text-slate-700">
+            <div>
+              <p className="font-semibold">Q. 予約管理がバラバラで、まず何から整理すればいいか分かりません。</p>
+              <p className="text-slate-600">
+                A. 現状のスクリーンショットやノートの写真をLINEで送ってもらうだけで大丈夫です。
+                そこから「どこを自動化すると一番ラクになるか」を一緒に決めていきます。
+              </p>
+            </div>
+
+            <div>
+              <p className="font-semibold">Q. ITが苦手でも使いこなせますか？</p>
+              <p className="text-slate-600">
+                A. 日常的な操作はすべてスマホのLINE上で完結する設計です。
+                初期設定もオンラインで一緒に画面を見ながら進めます。
+              </p>
+            </div>
+
+            <div>
+              <p className="font-semibold">Q. いつから使い始められますか？</p>
+              <p className="text-slate-600">
+                A. 必要な情報が揃っていれば、最短即日〜平均3日ほどで運用開始できます。
+              </p>
+            </div>
+
+            <div>
+              <p className="font-semibold">Q. 強引な営業や長期契約はありますか？</p>
+              <p className="text-slate-600">
+                A. ありません。まずは無料トライアル相談で相性を確認していただき、
+                合わないと感じた場合はスタンプ一つで終了していただけます。
+              </p>
+            </div>
+          </div>
         </section>
       </main>
 
