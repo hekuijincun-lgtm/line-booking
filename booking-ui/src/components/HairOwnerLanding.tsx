@@ -1,6 +1,6 @@
 import React from "react";
 
-const LINE_CTA_URL = "https://lin.ee/xxxxxxxx";
+const LINE_CTA_URL = "https://lin.ee/ovVekXY";
 
 export const HairOwnerLanding: React.FC = () => {
   const handleClick = () => {
