@@ -1,4 +1,6 @@
 import React from "react";
+import MainLayout from "./layouts/MainLayout";
+import BookingShell from "./components/BookingShell";
 import { HairOwnerLanding } from "./components/HairOwnerLanding";
 
 const getInitialTemplateId = (): string => {
@@ -11,7 +13,6 @@ export const App: React.FC = () => {
   const [templateId, setTemplateId] = React.useState<string>(() => getInitialTemplateId());
 
   React.useEffect(() => {
-    // URL が変わったときにも反映できるように一応イベントを仕込んでおく（保険）
     const handler = () => {
       setTemplateId(getInitialTemplateId());
     };
@@ -25,24 +26,18 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  const isHairOwnerLp = templateId === "hair-owner-lp";
+  const showLp = templateId === "hair-owner-lp";
 
+  if (showLp) {
+    // LPだけ表示（予約UIは出さない）
+    return <HairOwnerLanding />;
+  }
+
+  // それ以外は従来どおり予約UIを表示
   return (
-    <>
-      {/* ▼ template=hair-owner-lp のときだけ LP セクションを表示 */}
-      {isHairOwnerLp && <HairOwnerLanding />}
-
-      {/* ▼ ここに「元の App.tsx の中身（return の中）」をそのまま貼る */}
-      {/* 例：もともと
-            return (
-              <MainLayout>
-                <BookingShell ... />
-              </MainLayout>
-            );
-          だった場合、
-          <MainLayout>〜</MainLayout> の部分をそのまま下に貼り付ける */}
-      {/* ★ここに元の中身をそのまま貼る★ */}
-    </>
+    <MainLayout>
+      <BookingShell templateId={templateId} />
+    </MainLayout>
   );
 };
 
