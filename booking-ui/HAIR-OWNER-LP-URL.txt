@@ -1,0 +1,2 @@
+staging LP URL (hair-owner-lp)
+https://staging.booking-ui-4pk-3y1.pages.dev/?template=hair-owner-lp
