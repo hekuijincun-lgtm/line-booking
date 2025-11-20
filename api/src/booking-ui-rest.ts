@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { notifyLine } from "./lib/line-notify";
+import { notifyLine, buildBookingConfirmationMessage } from "./lib/line-notify";
 
 export interface Env {
   LINE_BOOKING: KVNamespace;
@@ -33,7 +33,7 @@ function json(body: any, status = 200, extra: Record<string, string> = {}) {
   });
 }
 
-// ✅ JST で「HH:mm〜HH:mm」を作るラベル関数
+// HH:mm〜HH:mm の表示ラベル
 function formatJstLabel(isoStart: string, isoEnd: string): string {
   const toJst = (iso: string) => {
     const d = new Date(iso);
@@ -51,7 +51,7 @@ export async function tryHandleBookingUiREST(
 ): Promise<Response | undefined> {
   const url = new URL(request.url);
 
-  // --- CORS / OPTIONS ------------------------------------------------------
+  // --- OPTIONS -------------------------------------------------------------
   if (request.method === "OPTIONS") {
     return new Response(null, {
       status: 204,
@@ -65,54 +65,26 @@ export async function tryHandleBookingUiREST(
 
   // --- GET /line/slots -----------------------------------------------------
   if (request.method === "GET" && url.pathname === "/line/slots") {
-    // UI から date 指定がなければ「今日(JST)」を使う
     let date = url.searchParams.get("date") ?? "";
     if (!qDate.safeParse(date).success) {
       date = getTodayJstDate();
     }
-
     let slots: any[] | null = null;
     try {
       const raw = await env.LINE_BOOKING.get(`slots:${date}`, "json");
-      if (raw && Array.isArray(raw)) {
-        slots = raw as any[];
-      }
-    } catch {
-      // KVエラー時はフォールバックに進む
-    }
+      if (raw && Array.isArray(raw)) slots = raw;
+    } catch {}
 
-    // KVに無ければデモ用の枠を生成
     if (!slots) {
       const base = new Date(`${date}T00:00:00+09:00`).getTime();
-      const mk = (h: number) =>
-        new Date(base + h * 3600_000).toISOString();
-
+      const mk = (h: number) => new Date(base + h * 3600_000).toISOString();
       slots = [
-        {
-          id: `S-${date}-1`,
-          start: mk(10),
-          end: mk(11),
-          capacity: 1,
-          remaining: 1,
-        },
-        {
-          id: `S-${date}-2`,
-          start: mk(12),
-          end: mk(13),
-          capacity: 1,
-          remaining: 1,
-        },
-        {
-          id: `S-${date}-3`,
-          start: mk(15),
-          end: mk(16),
-          capacity: 1,
-          remaining: 1,
-        },
+        { id: `S-${date}-1`, start: mk(10), end: mk(11), capacity: 1, remaining: 1 },
+        { id: `S-${date}-2`, start: mk(12), end: mk(13), capacity: 1, remaining: 1 },
+        { id: `S-${date}-3`, start: mk(15), end: mk(16), capacity: 1, remaining: 1 },
       ];
     }
 
-    // ✅ label を追加して返す（UI側は label をそのまま表示）
     return json({
       date,
       slots: slots.map((s) => ({
@@ -124,8 +96,6 @@ export async function tryHandleBookingUiREST(
 
   // --- POST /line/reserve --------------------------------------------------
   if (request.method === "POST" && url.pathname === "/line/reserve") {
-    // UI からは { slotId, menuId, source } が飛んでくる想定
-    // name / phone / note はオプション扱いにして、name が無い場合は「Web予約」にする
     const ReserveSchema = z
       .object({
         slotId: z.string().min(1),
@@ -135,16 +105,12 @@ export async function tryHandleBookingUiREST(
         phone: z.string().optional().nullable(),
         note: z.string().optional().nullable(),
       })
-      .passthrough(); // 将来フィールド追加されても落とさない
+      .passthrough();
 
     const body = await request.json().catch(() => ({}));
     const parsed = ReserveSchema.safeParse(body);
-
     if (!parsed.success) {
-      return json(
-        { error: "bad body", issues: parsed.error.issues },
-        400,
-      );
+      return json({ error: "bad body", issues: parsed.error.issues }, 400);
     }
 
     const data = parsed.data;
@@ -155,10 +121,7 @@ export async function tryHandleBookingUiREST(
       slotId: data.slotId,
       menuId: data.menuId ?? null,
       source: data.source ?? "web-ui",
-      name:
-        typeof data.name === "string" && data.name.trim().length > 0
-          ? data.name.trim()
-          : "Web予約",
+      name: data.name?.trim() || "お客様",
       phone: data.phone ?? null,
       note: data.note ?? null,
       createdAt: new Date().toISOString(),
@@ -166,67 +129,52 @@ export async function tryHandleBookingUiREST(
     };
 
     await env.LINE_BOOKING.put(`resv:${id}`, JSON.stringify(rec), {
-      expirationTtl: 60 * 60 * 24 * 7, // 7日で自動削除
+      expirationTtl: 60 * 60 * 24 * 7,
     });
 
-    // UI 側は reservationId / id のどちらでも拾えるようにしておく
+    // UI用レスポンスも即返す（ここは高速）
     return json({ ok: true, id, reservationId: id });
   }
 
-type BookingLineNotifyBody = {
-  reserveId?: string;
-};
+  // --- POST /line/notify ---------------------------------------------------
+  if (request.method === "POST" && url.pathname === "/line/notify") {
+    try {
+      const body = (await request.json()) as { reserveId?: string };
+      const reserveId = body.reserveId;
+      if (!reserveId) {
+        return json({ ok: false, error: "reserveId required" }, 400);
+      }
 
-if (request.method === "POST" && url.pathname === "/line/notify") {
-  try {
-    const body = (await request.json()) as BookingLineNotifyBody;
-    const reserveId = body.reserveId;
+      // 予約レコードを取得
+      const recStr = await env.LINE_BOOKING.get(`resv:${reserveId}`, "text");
+      if (!recStr) {
+        return json({ ok: false, error: "reservation not found" }, 404);
+      }
+      const rec = JSON.parse(recStr);
 
-    if (!reserveId) {
-      return new Response(
-        JSON.stringify({ ok: false, error: "reserveId required" }),
-        {
-          status: 400,
-          headers: { "Content-Type": "application/json; charset=utf-8" },
-        },
-      );
+      // SLOT 情報を取得して日付時間を抽出
+      const slotStr = await env.LINE_BOOKING.get(`slots:${rec.slotId.split("-")[1]}`, "json");
+      let dateLabel = "";
+      let timeLabel = "";
+      if (Array.isArray(slotStr)) {
+        const slot = slotStr.find((s: any) => s.id === rec.slotId);
+        if (slot) {
+          dateLabel = slot.start.slice(0, 10).replace(/-/g, "/"); // yyyy/MM/dd
+          timeLabel = formatJstLabel(slot.start, slot.end);
+        }
+      }
+
+      const safeName = rec.name || "お客様";
+      const msg = buildBookingConfirmationMessage(safeName, dateLabel, timeLabel);
+
+      await notifyLine(env, rec.userId ?? null, msg);
+
+      return json({ ok: true });
+    } catch (err) {
+      console.error("lineNotify error", err);
+      return json({ ok: false, error: String(err) }, 500);
     }
-
-    console.log("LINE_MESSAGING_ACCESS_TOKEN length", env.LINE_MESSAGING_ACCESS_TOKEN.length);
-const msgLines = [
-      "🙇‍♀️ご予約ありがとうございます！",
-      "🔑 予約ID: " + reserveId,
-      "",
-      "変更・キャンセルをご希望の場合はこちらからご連絡ください✨",
-    ];
-
-    const msg = msgLines.join("\n");
-
-        await notifyLine(msg, env.LINE_MESSAGING_ACCESS_TOKEN);
-
-    return new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { "Content-Type": "application/json; charset=utf-8" },
-    });
-  } catch (err) {
-    console.error("lineNotify error", err);
-    return new Response(JSON.stringify({ ok: false, error: String(err) }), {
-      status: 500,
-      headers: { "Content-Type": "application/json; charset=utf-8" },
-    });
   }
-}
 
-  // このハンドラの対象外
   return undefined;
 }
-
-type LineNotifyBody = {
-  reserveId?: string;
-};
-
-
-
-
-
-
