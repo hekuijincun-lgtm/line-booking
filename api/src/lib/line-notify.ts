@@ -37,3 +37,7 @@ export async function notifyLine(
     throw new Error(`notifyLine failed: ${res.status}`);
   }
 }
+export function buildBookingConfirmationMessage(reservation: unknown): string {
+  // TODO: 予約内容に応じてメッセージをカスタマイズ
+  return "ご予約ありがとうございます。LINE予約システムで受付が完了しました。";
+}

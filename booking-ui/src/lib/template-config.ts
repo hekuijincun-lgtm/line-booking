@@ -5,23 +5,6 @@ export type TemplateConfig = {
   envLabel?: string;
   primaryColor?: string;
   accentColor?: string;
-
-  // LP 用追加項目
-  heroCatch?: string;
-  heroSub?: string;
-
-  before?: string[];
-  after?: string[];
-
-  pricing?: {
-    name: string;
-    price: string;
-    features: string[];
-    highlight?: boolean;
-  }[];
-
-  results?: string[];
-  faq?: { q: string; a: string }[];
 };
 
 const TEMPLATE_BASE_PATH = "/templates";
@@ -52,73 +35,55 @@ async function fetchJson<T>(path: string): Promise<T> {
   if (!res.ok) {
     throw new TemplateConfigError(
       "failedToLoadTemplate",
-export const TEMPLATE_JSON_PATH = "/templates/template-config.json";
+      HTTP ${res.status} ${res.statusText}
     );
   }
   return (await res.json()) as T;
 }
 
-export async function loadTemplateConfig(templateId: string): Promise<TemplateConfig> {
-  if (!templateId) {
+function getTemplateIdFromUrl(search: string): string {
+  const params = new URLSearchParams(search);
+  const id = params.get("template");
+  if (!id) {
     throw new TemplateConfigError("missingTemplateParam");
   }
+  return id;
+}
 
-  const url = `${TEMPLATE_BASE_PATH}/${templateId}.json`;
+function buildTemplateJsonPath(id: string): string {
+  return ${TEMPLATE_BASE_PATH}/${id}.json;
+}
 
+export async function loadTemplateConfig(templateId: string): Promise<TemplateConfig> {
+  const path = buildTemplateJsonPath(templateId);
   try {
-    const cfg = await fetchJson<TemplateConfig>(url);
-
-    return {
-      id: cfg.id ?? templateId,
-      title: cfg.title ?? "Kazuki Booking",
-      subtitle: cfg.subtitle ?? "オンライン予約",
-      envLabel: cfg.envLabel ?? "ENV: staging",
-      primaryColor: cfg.primaryColor ?? "#0f172a",
-      accentColor: cfg.accentColor ?? "#facc15",
-
-      heroCatch: cfg.heroCatch ?? "",
-      heroSub: cfg.heroSub ?? "",
-
-      before: cfg.before ?? [],
-      after: cfg.after ?? [],
-
-      pricing: cfg.pricing ?? [],
-      results: cfg.results ?? [],
-      faq: cfg.faq ?? []
-    };
+    return await fetchJson<TemplateConfig>(path);
   } catch (err) {
-    console.error("[template-config] failed to load template config", err);
-
-    // 何があっても LP が真っ白にならないように最低限のデフォルト
-    return {
-      id: templateId,
-      title: "Kazuki Booking",
-      subtitle: "オンライン予約",
-      envLabel: "ENV: fallback",
-      primaryColor: "#0f172a",
-      accentColor: "#facc15",
-      heroCatch: "予約対応を手放して施術に集中しませんか？",
-      heroSub: "LINEで自動受付・自動リマインド・空き枠管理を一括化します。",
-      before: [],
-      after: [],
-      pricing: [],
-      results: [],
-      faq: []
-    };
+    if (err instanceof TemplateConfigError) {
+      throw err;
+    }
+    throw new TemplateConfigError("loadTemplateConfig", String(err));
   }
 }
 
-export async function resolveTemplateFromLocation(
-  location: Location
-): Promise<TemplateConfig> {
-  const search = location.search || "";
-  const params = new URLSearchParams(search);
-  const templateId = params.get("template") || "hair-owner-lp";
-  return loadTemplateConfig(templateId);
+export async function loadTemplateConfigFromLocation(loc: Location): Promise<TemplateConfig> {
+  const id = getTemplateIdFromUrl(loc.search);
+  return loadTemplateConfig(id);
 }
 
-export async function resolveTemplateFromWindow(
-  win: Window
-): Promise<TemplateConfig> {
-  return resolveTemplateFromLocation(win.location);
+export const TEMPLATE_JSON_PATH = "/templates/template-config.json";
+
+export async function loadAllTemplateConfigs(): Promise<TemplateConfig[]> {
+  try {
+    return await fetchJson<TemplateConfig[]>(TEMPLATE_JSON_PATH);
+  } catch (err) {
+    if (err instanceof TemplateConfigError) {
+      throw err;
+    }
+    throw new TemplateConfigError("loadTemplateConfig", String(err));
+  }
 }
+
+
+
+
