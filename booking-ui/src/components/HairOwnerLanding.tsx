@@ -1,40 +1,9 @@
-import React, { useState } from "react";
+import React from "react";
 
 const LINE_CTA_URL = "https://lin.ee/ovVekXY";
 
-type FaqItem = {
-  question: string;
-  answer: string;
-};
-
-const faqItems: FaqItem[] = [
-  {
-    question: "予約管理がバラバラで、まず何から整理すればいいか分かりません。",
-    answer:
-      "現状のスクリーンショットやノートの写真をLINEで送ってもらうだけで大丈夫です。そこから「どこを自動化すると一番ラクになるか」を一緒に決めていきます。",
-  },
-  {
-    question: "ITが苦手でも使いこなせますか？",
-    answer:
-      "日常的な操作はすべてスマホのLINE上で完結する設計です。初期設定もオンラインで一緒に画面を見ながら進めます。",
-  },
-  {
-    question: "いつから使い始められますか？",
-    answer:
-      "必要な情報が揃っていれば、最短即日〜平均3日ほどで運用開始できます。",
-  },
-  {
-    question: "強引な営業や長期契約はありますか？",
-    answer:
-      "ありません。まずは無料トライアル相談で相性を確認していただき、合わないと感じた場合はスタンプ一つで終了していただけます。",
-  },
-];
-
 export const HairOwnerLanding: React.FC = () => {
   const handleClick = () => window.open(LINE_CTA_URL, "_blank");
-
-  // FAQの開閉状態（最初は1つ目を開けておく）
-  const [openIndex, setOpenIndex] = useState<number | null>(0);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-24">
@@ -150,38 +119,43 @@ export const HairOwnerLanding: React.FC = () => {
           </ul>
         </section>
 
-        {/* FAQ（アコーディオン） */}
+        {/* FAQ */}
         <section className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
           <h2 className="text-base font-semibold">よくあるご質問</h2>
 
           <div className="space-y-3 text-sm text-slate-700">
-            {faqItems.map((item, index) => {
-              const isOpen = openIndex === index;
-              return (
-                <div
-                  key={item.question}
-                  className="rounded-2xl border border-slate-200 bg-slate-50"
-                >
-                  <button
-                    type="button"
-                    className="w-full px-4 py-3 flex items-center justify-between text-left"
-                    onClick={() => setOpenIndex(isOpen ? null : index)}
-                  >
-                    <span className="font-semibold">
-                      Q. {item.question}
-                    </span>
-                    <span className="ml-3 text-slate-500 text-lg">
-                      {isOpen ? "－" : "＋"}
-                    </span>
-                  </button>
-                  {isOpen && (
-                    <div className="px-4 pb-4 pt-0 text-slate-600 text-[13px] leading-relaxed border-t border-slate-200">
-                      {item.answer}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            <div>
+              <p className="font-semibold">
+                Q. 予約管理がバラバラで、まず何から整理すればいいか分かりません。
+              </p>
+              <p className="text-slate-600">
+                A. 現状のスクリーンショットやノートの写真をLINEで送ってもらうだけで大丈夫です。
+                そこから「どこを自動化すると一番ラクになるか」を一緒に決めていきます。
+              </p>
+            </div>
+
+            <div>
+              <p className="font-semibold">Q. ITが苦手でも使いこなせますか？</p>
+              <p className="text-slate-600">
+                A. 日常的な操作はすべてスマホのLINE上で完結する設計です。
+                初期設定もオンラインで一緒に画面を見ながら進めます。
+              </p>
+            </div>
+
+            <div>
+              <p className="font-semibold">Q. いつから使い始められますか？</p>
+              <p className="text-slate-600">
+                A. 必要な情報が揃っていれば、最短即日〜平均3日ほどで運用開始できます。
+              </p>
+            </div>
+
+            <div>
+              <p className="font-semibold">Q. 強引な営業や長期契約はありますか？</p>
+              <p className="text-slate-600">
+                A. ありません。まずは無料トライアル相談で相性を確認していただき、
+                合わないと感じた場合はスタンプ一つで終了していただけます。
+              </p>
+            </div>
           </div>
         </section>
       </main>
@@ -191,9 +165,7 @@ export const HairOwnerLanding: React.FC = () => {
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="text-[11px] leading-tight">
             <div className="font-semibold">＼ 電話対応に追われないサロンへ ／</div>
-            <div className="text-slate-300">
-              まずはLINEで無料トライアル相談（1分で完了）
-            </div>
+            <div className="text-slate-300">まずはLINEで無料トライアル相談（1分で完了）</div>
           </div>
           <button
             onClick={handleClick}

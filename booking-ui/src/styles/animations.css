@@ -1,0 +1,105 @@
+/* ========= Kazuki Booking LP animations (scroll reveal) ========= */
+
+@keyframes lp-fade-up {
+  0% {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 全体のスクロールをなめらかに */
+.lp-page,
+main {
+  scroll-behavior: smooth;
+}
+
+/* -------- スクロールで「にゅーん」と出るセクション -------- */
+
+.lp-scroll-section {
+  opacity: 0;
+  transform: translateY(18px);
+}
+
+.lp-scroll-visible {
+  animation: lp-fade-up 0.6s ease-out forwards;
+}
+
+/* アニメ苦手な人向け: OS設定で reduce の場合はアニメOFF */
+@media (prefers-reduced-motion: reduce) {
+  .lp-scroll-section,
+  .lp-scroll-visible {
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+  }
+}
+
+/* -------- カード hover（料金プランなど） -------- */
+
+.lp-card-hover,
+main div[class*="shadow"][class*="rounded"] {
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+  will-change: transform, box-shadow;
+}
+
+.lp-card-hover:hover,
+main div[class*="shadow"][class*="rounded"]:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+}
+
+/* -------- CTAボタン hover（緑ボタンを目立たせる） -------- */
+
+.lp-cta,
+main a[class*="bg-emerald"],
+main button[class*="bg-emerald"] {
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  will-change: transform, box-shadow;
+}
+
+.lp-cta:hover,
+main a[class*="bg-emerald"]:hover,
+main button[class*="bg-emerald"]:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 16px 32px rgba(22, 163, 74, 0.35);
+}
+
+/* FAQ の Q ボックスも少しだけ浮かせる */
+main div[class*="border"][class*="rounded"][class*="bg-white"]:hover {
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+}
+/* ========= lp-mobile-tune: モバイル最適化 ========= */
+@media (max-width: 768px) {
+  main {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+  }
+
+  main h1 {
+    font-size: 1.6rem;
+    line-height: 1.3;
+  }
+
+  main h2 {
+    font-size: 1.35rem;
+  }
+
+  /* Heroボタン & プランボタンをほぼ横幅いっぱいに */
+  main a[class*="bg-emerald"],
+  main button[class*="bg-emerald"] {
+    width: 100%;
+    max-width: 360px;
+    justify-content: center;
+  }
+
+  /* セクションの間隔を少し詰めて、縦スクロールのリズムをよくする */
+  .lp-scroll-section {
+    margin-bottom: 2.75rem;
+  }
+}
