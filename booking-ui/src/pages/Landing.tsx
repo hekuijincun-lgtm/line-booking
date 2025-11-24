@@ -1,29 +1,15 @@
 import * as React from "react";
 
-const BeforeAfterSection: React.FC = () => {
-  return (
-    <section className="lp-section">
-      <h2 className="lp-h2">導入前と導入後のイメージ</h2>
-      <div className="lp-ba-wrap">
-        <div className="lp-ba-card before">
-          <div className="label">BEFORE</div>
-          <ul>
-            <li>予約用LINEがプライベートと混ざり、返信遅れが発生</li>
-            <li>予約メモがノート/頭の中で散らかり、ダブルブッキング不安</li>
-            <li>前日リマインド送れず、当日キャンセルが地味に痛い</li>
-          </ul>
-        </div>
-        <div className="lp-ba-card after">
-          <div className="label">AFTER</div>
-          <ul>
-            <li>予約〜リマインドまでLINE上で一元管理し不安ゼロ</li>
-            <li>返信テンプレで対応時間が1/3に短縮</li>
-            <li>来店履歴もまとまり「次回予約のご案内」が自然に取れる</li>
-          </ul>
-        </div>
-      </div>
-    </section>
-  );
+type LpSection = {
+  type: string;
+  html?: string;
+  // 将来 pricing / steps などを追加する場合ここにフィールドを増やす
+};
+
+type LpTemplate = {
+  id?: string;
+  title?: string;
+  sections?: LpSection[];
 };
 
 const FloatingCta: React.FC = () => {
@@ -52,10 +38,92 @@ const FloatingCta: React.FC = () => {
 };
 
 const Landing: React.FC = () => {
+  const [template, setTemplate] = React.useState<LpTemplate | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  // ?template=xxx を取得（なければ hair-owner-lp-soft-v2 をデフォルトに）
+  const search = new URLSearchParams(window.location.search);
+  const templateId = search.get("template") ?? "hair-owner-lp-soft-v2";
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function loadTemplate() {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const res = await fetch(`/templates/${templateId}.json`, {
+          method: "GET",
+        });
+
+        if (!res.ok) {
+          throw new Error(`Failed to load template: ${res.status}`);
+        }
+
+        const json = (await res.json()) as LpTemplate;
+        if (!cancelled) {
+          setTemplate(json);
+        }
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) {
+          setError("テンプレートの読み込みに失敗しました。");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadTemplate();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [templateId]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#F5F7FB] text-slate-900 flex items-center justify-center">
+        <p className="text-sm text-slate-600">読み込み中です...</p>
+      </div>
+    );
+  }
+
+  if (error || !template) {
+    return (
+      <div className="min-h-screen bg-[#F5F7FB] text-slate-900 flex items-center justify-center">
+        <div className="max-w-md px-4 text-center">
+          <p className="mb-2 text-sm font-semibold text-red-600">エラー</p>
+          <p className="text-xs text-slate-600">
+            {error ?? "テンプレートが見つかりませんでした。URLの template パラメータを確認してください。"}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F5F7FB] text-slate-900">
       <main className="mx-auto max-w-5xl px-0 pt-6 pb-28 md:px-0 md:pt-8">
-        <BeforeAfterSection />
+        {template.sections?.map((section, index) => {
+          // 今は type: "html" をメインで扱う
+          if (section.type === "html" && section.html) {
+            return (
+              <div
+                key={index}
+                // section.html 側に <section> やスタイルが入っている想定なので div ラッパーにしている
+                dangerouslySetInnerHTML={{ __html: section.html }}
+              />
+            );
+          }
+
+          // TODO: type === "pricing" / "steps" などを将来ここでハンドリング
+          return null;
+        })}
       </main>
       <FloatingCta />
     </div>
@@ -63,5 +131,3 @@ const Landing: React.FC = () => {
 };
 
 export default Landing;
-
-
