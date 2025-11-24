@@ -136,3 +136,5 @@ export async function resolveTemplateFromWindow(
 ): Promise<TemplateConfig> {
   return resolveTemplateFromLocation(win.location);
 }
+
+

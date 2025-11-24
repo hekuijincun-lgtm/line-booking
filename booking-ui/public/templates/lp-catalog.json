@@ -1,0 +1,22 @@
+{
+  "entries": [
+    {
+      "templateId": "esthe-owner-lp-soft",
+      "industry": "esthe",
+      "persona": "ひとりエステ",
+      "usage": "ad-lp",
+      "urlStaging": "https://staging.booking-ui-4pk.pages.dev/?template=esthe-owner-lp-soft",
+      "urlProduction": "https://booking-ui-4pk.pages.dev/?template=esthe-owner-lp-soft",
+      "lastUpdated": "2025-11-23 17:38:01"
+    },
+    {
+      "templateId": "chair-owner-lp-soft",
+      "industry": "chair",
+      "persona": "チェアサロン・ひとりオーナー",
+      "usage": "ad-lp",
+      "urlStaging": "https://staging.booking-ui-4pk.pages.dev/?template=chair-owner-lp-soft",
+      "urlProduction": "",
+      "lastUpdated": "2025-11-24 08:32:28"
+    }
+  ]
+}

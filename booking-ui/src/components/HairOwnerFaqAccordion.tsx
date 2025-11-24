@@ -65,3 +65,5 @@ export const HairOwnerFaqAccordion: React.FC = () => {
     </section>
   );
 };
+
+

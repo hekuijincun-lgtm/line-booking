@@ -1,8 +1,26 @@
-{
-  "id": "hair-owner-lp",
-  "title": "美容室オーナー向け LP",
-  "subtitle": "Kazuki Booking 導入で予約と売上を自動で増やす",
-  "envLabel": "stg/prod 共通",
-  "primaryColor": "#0f172a",
-  "accentColor": "#fbbf24"
-}
+[
+  {
+    "id": "hair-owner-lp",
+    "title": "美容室オーナー向け LP",
+    "subtitle": "Kazuki Booking 導入で予約と売上を自動で増やす",
+    "envLabel": "stg/prod 共通",
+    "primaryColor": "#0f172a",
+    "accentColor": "#fbbf24"
+  },
+  {
+    "id": "hair-owner-lp-dark",
+    "title": "Kazuki Booking Owner LP (Dark Pro)",
+    "subtitle": "Tech寄り / ダーク高級なオーナーLP",
+    "envLabel": "OWNER LP / Dark-Pro",
+    "primaryColor": "#020617",
+    "accentColor": "#FACC15"
+  },
+  {
+    "id": "hair-owner-lp-soft",
+    "title": "Kazuki Booking Owner LP (Soft Luxe)",
+    "subtitle": "白×深青×金の柔らかラグジュアリーLP",
+    "envLabel": "OWNER LP / Soft-Luxe",
+    "primaryColor": "#1A4B67",
+    "accentColor": "#4C7C93"
+  }
+]

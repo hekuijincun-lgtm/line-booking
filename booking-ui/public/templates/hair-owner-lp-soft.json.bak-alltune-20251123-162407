@@ -1,0 +1,45 @@
+{
+  "id": "hair-owner-lp-soft",
+  "title": "Kazuki Booking | LINE予約SaaS",
+  "primaryColor": "#1A4B67",
+  "accentColor": "#4C7C93",
+  "sections": [
+    {
+      "type": "pricing",
+      "plans": [
+        {
+          "name": "Standard",
+          "price": "¥6,980 / 月（税込）",
+          "popular": true,
+          "features": [
+            "LINE予約受付",
+            "自動リマインド（前日/当日）",
+            "予約一覧ダッシュボード",
+            "メニュー / 営業時間カスタマイズ",
+            "チャットサポート"
+          ],
+          "buttonLabel": "LINEで無料デモを見る",
+          "buttonUrl": "https://lin.ee/your-line-url"
+        },
+        {
+          "name": "Growth",
+          "price": "¥12,800 / 月（税込）",
+          "popular": false,
+          "features": [
+            "Standard の全機能",
+            "複数スタッフ・指名管理",
+            "顧客カルテ / 来店履歴",
+            "売上・再来率レポート",
+            "優先サポート"
+          ],
+          "buttonLabel": "Growthプランについて相談する",
+          "buttonUrl": "https://lin.ee/your-line-url"
+        }
+      ]
+    },
+    {
+      "type": "html",
+      "html": "<section style=\"padding:32px; max-width:960px; margin:0 auto;\">\n  <h2 style=\"font-size:18px; font-weight:600; color:#1A4B67; margin-bottom:12px;\">\n    安心して導入いただけるポイント\n  </h2>\n  <div style=\"display:flex; flex-wrap:wrap; gap:16px;\">\n    <div style=\"flex:1 1 260px; padding:14px 18px; border-radius:16px; background:#F9FAFB;\">\n      <h3 style=\"font-size:13px; font-weight:600; color:#1F2933; margin-bottom:6px;\">いつでも解約OK</h3>\n      <p style=\"font-size:13px; line-height:1.7; color:#4B5563; margin:0;\">\n        最低契約期間のしばりはありません。まずは数ヶ月の「お試し導入」からでも大丈夫です。\n      </p>\n    </div>\n    <div style=\"flex:1 1 260px; padding:14px 18px; border-radius:16px; background:#F9FAFB;\">\n      <h3 style=\"font-size:13px; font-weight:600; color:#1F2933; margin-bottom:6px;\">初期設定はまるっとサポート</h3>\n      <p style=\"font-size:13px; line-height:1.7; color:#4B5563; margin:0;\">\n        メニュー登録や予約枠の設計など、面倒な初期設定はサポートが代行。オーナー様は内容の確認だけでOKです。\n      </p>\n    </div>\n    <div style=\"flex:1 1 260px; padding:14px 18px; border-radius:16px; background:#F9FAFB;\">\n      <h3 style=\"font-size:13px; font-weight:600; color:#1F2933; margin-bottom:6px;\">今のLINEアカウントをそのまま利用</h3>\n      <p style=\"font-size:13px; line-height:1.7; color:#4B5563; margin:0;\">\n        既にお使いのLINE公式アカウントをそのまま接続可能。お客様に新しいアカウントを案内し直す必要はありません。\n      </p>\n    </div>\n  </div>\n</section>"
+    }
+  ]
+}

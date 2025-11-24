@@ -1,0 +1,8 @@
+import React from "react";
+
+// NOTE:
+// このコンポーネントは現状ルーティングで使っていないので、
+// ビルドを通すためのダミーとして何も描画しません。
+export default function Landing() {
+  return null;
+}

@@ -1,0 +1,8 @@
+/**
+ * NOTE:
+ * 現状このページはルーティングで使っていないので、
+ * ビルドを通すためのダミーコンポーネントにしておく。
+ */
+export default function Landing() {
+  return null;
+}

@@ -92,14 +92,14 @@ function PricingSection() {
                 個人サロン向けベースプラン
               </p>
             </div>
-            <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-300">
+            <span className="rounded-full bg-[#4C7C93]/10 px-3 py-1 text-[11px] font-semibold text-emerald-300">
               一番人気
             </span>
           </div>
 
           <div className="mb-3 flex items-baseline gap-1">
             <span className="text-2xl font-bold text-amber-300">
-              ¥29,800
+              ¥7,000
             </span>
             <span className="text-xs text-slate-400">/ 月（税込）</span>
           </div>
@@ -141,7 +141,7 @@ function PricingSection() {
           </p>
 
           <p className="mb-4 text-xs font-semibold text-amber-200">
-            ¥49,800〜 / 月（内容によりご提案）
+            ¥10,000〜 / 月（内容によりご提案）
           </p>
 
           <p className="text-[11px] text-slate-400">
@@ -156,7 +156,7 @@ function PricingSection() {
 function FloatingCta() {
   return (
     <div className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-800/80 bg-slate-950/95 backdrop-blur">
-      <div className="mx-auto flex max-w-[480px] items-center gap-3 px-4 py-3">
+      <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
         <div className="flex-1">
           <p className="text-[11px] font-semibold text-slate-200">
             LINEで相談・デモ予約してみる 💬で相談・デモ希望
@@ -181,7 +181,7 @@ function FloatingCta() {
 function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
-      <main className="mx-auto max-w-[480px] px-4 pt-6 pb-28">
+      <main className="mx-auto max-w-3xl px-4 pt-6 pb-28">
         <HeroSection />
         <PricingSection />
         {/* 必要ならここに「導入メリット」「FAQ」など追加 */}
@@ -193,6 +193,9 @@ function App() {
 }
 
 export default App;
+
+
+
 
 
 

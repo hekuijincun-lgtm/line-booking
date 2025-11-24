@@ -1,0 +1,49 @@
+{
+  "id": "hair-owner-lp-soft",
+  "title": "Kazuki Booking | LINE予約SaaS（美容室向け）",
+  "primaryColor": "#1A4B67",
+  "accentColor": "#4C7C93",
+  "sections": [
+    {
+      "type": "html",
+      "html": "<section style=\"padding:32px; max-width:960px; margin:0 auto;\">\n  <h2 style=\"font-size:18px; font-weight:600; color:#1A4B67; margin-bottom:12px;\">\n    ご利用サロンのイメージ・お客様の声\n  </h2>\n  <p style=\"font-size:13px; line-height:1.7; color:#4B5563; margin-bottom:16px;\">\n    ひとり営業のプライベートサロンから、スタッフ数名の小規模サロンまで。\n    Kazuki Booking を使って、予約LINEに追われるストレスから少しずつ解放されているオーナー様のイメージです。\n  </p>\n  <div style=\"display:flex; flex-wrap:wrap; gap:16px;\">\n    <div style=\"flex:1 1 260px; padding:14px 16px; border-radius:16px; background:#FFFFFF; box-shadow:0 8px 24px rgba(15,23,42,0.06);\">\n      <div style=\"font-size:11px; font-weight:600; color:#4C7C93; margin-bottom:4px;\">個人サロン / 30代・女性</div>\n      <p style=\"font-size:13px; line-height:1.7; color:#4B5563; margin:0;\">\n        「予約LINEの返信がいつも後回しで、夜にまとめて返信するのが当たり前でした。\n        今は空き枠の案内とリマインドが自動で出るので、日中は施術に集中できています。」\n      </p>\n    </div>\n    <div style=\"flex:1 1 260px; padding:14px 16px; border-radius:16px; background:#FFFFFF; box-shadow:0 8px 24px rgba(15,23,42,0.06);\">\n      <div style=\"font-size:11px; font-weight:600; color:#4C7C93; margin-bottom:4px;\">スタッフ3名サロン / 40代・女性</div>\n      <p style=\"font-size:13px; line-height:1.7; color:#4B5563; margin:0;\">\n        「スタッフごとの空き時間をLINE上で管理できるようになってから、\n        ダブルブッキングのヒヤッとする瞬間がほとんどなくなりました。\n        お客様へのご案内もスムーズです。」\n      </p>\n    </div>\n    <div style=\"flex:1 1 260px; padding:14px 16px; border-radius:16px; background:#FFFFFF; box-shadow:0 8px 24px rgba(15,23,42,0.06);\">\n      <div style=\"font-size:11px; font-weight:600; color:#4C7C93; margin-bottom:4px;\">フリーランス兼業 / 20代・女性</div>\n      <p style=\"font-size:13px; line-height:1.7; color:#4B5563; margin:0;\">\n        「本業とサロンワークの両立で時間が足りない中、\n        予約〜リマインドを自動にしたことで『また来たい』と\n        言ってくださる常連さんが増えてきました。」\n      </p>\n    </div>\n  </div>\n</section>"
+    },
+    {
+      "type": "html",
+      "html": "<section style=\"padding:32px; max-width:960px; margin:0 auto;\">\n  <h2 style=\"font-size:18px; font-weight:600; color:#1A4B67; margin-bottom:16px;\">\n    導入前と導入後のイメージ\n  </h2>\n  <div style=\"display:flex; flex-wrap:wrap; gap:16px;\">\n    <div style=\"flex:1 1 260px; padding:16px 20px; border-radius:18px; background:#F3F4F6;\">\n      <div style=\"font-size:12px; font-weight:600; color:#9CA3AF; margin-bottom:6px;\">BEFORE</div>\n      <ul style=\"font-size:13px; line-height:1.7; color:#4B5563; padding-left:1.1em; margin:0;\">\n        <li>予約用LINEがプライベートと混ざり、返信遅れが発生</li>\n        <li>予約メモがノート／頭の中で散らかり、ダブルブッキングが不安</li>\n        <li>前日リマインドを送れず、当日キャンセルが地味に痛い</li>\n      </ul>\n    </div>\n    <div style=\"flex:1 1 260px; padding:16px 20px; border-radius:18px; background:#ECF5F9;\">\n      <div style=\"font-size:12px; font-weight:600; color:#4C7C93; margin-bottom:6px;\">AFTER</div>\n      <ul style=\"font-size:13px; line-height:1.7; color:#1F2933; padding-left:1.1em; margin:0;\">\n        <li>予約〜リマインドまでをLINE上で一元管理し、不安ゼロ</li>\n        <li>返信テンプレで対応時間が1/3に短縮</li>\n        <li>来店履歴とメモがまとまって見られ、「次回予約のご案内」が自然に取れる</li>\n      </ul>\n    </div>\n  </div>\n</section>"
+    },
+    {
+      "type": "pricing",
+      "plans": [
+        {
+          "name": "Standard",
+          "price": "¥6,980 / 月（税込）",
+          "popular": true,
+          "features": [
+            "LINE予約受付",
+            "自動リマインド（前日/当日）",
+            "予約一覧ダッシュボード",
+            "メニュー / 営業時間カスタマイズ",
+            "チャットサポート"
+          ],
+          "buttonLabel": "LINEで無料デモを見る",
+          "buttonUrl": "https://lin.ee/your-line-url"
+        },
+        {
+          "name": "Growth",
+          "price": "¥12,800 / 月（税込）",
+          "popular": false,
+          "features": [
+            "Standard の全機能",
+            "複数スタッフ・指名管理",
+            "顧客カルテ / 来店履歴",
+            "売上・再来率レポート",
+            "優先サポート"
+          ],
+          "buttonLabel": "GrowthプランについてLINEで相談する",
+          "buttonUrl": "https://lin.ee/your-line-url"
+        }
+      ]
+    }
+  ]
+}

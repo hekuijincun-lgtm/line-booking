@@ -1,0 +1,46 @@
+{
+  "id": "lash-owner-lp-soft-v2",
+  "title": "Kazuki Booking | まつげサロン向けLINE予約インフラ",
+  "primaryColor": "#1A4B67",
+  "accentColor": "#4C7C93",
+  "sections": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    {
+      "type": "pricing",
+      "plans": [
+        {
+          "name": "Standard",
+          "price": "¥6,980 / 月（税込）",
+          "popular": true,
+          "features": [
+            "LINE予約受付",
+            "自動リマインド（前日/当日）",
+            "予約一覧ダッシュボード",
+            "メニュー / 営業時間カスタマイズ",
+            "チャットサポート"
+          ],
+          "buttonLabel": "まずはLINEでまつげサロン向けデモを見る",
+          "buttonUrl": "https://lin.ee/your-line-url"
+        },
+        {
+          "name": "Growth",
+          "price": "¥12,800 / 月（税込）",
+          "popular": false,
+          "features": [
+            "Standard の全機能",
+            "複数スタッフ・指名管理",
+            "顧客カルテ / 来店履歴",
+            "売上・再来率レポート",
+            "優先サポート"
+          ],
+          "buttonLabel": "複数スタッフプランをLINEで相談する",
+          "buttonUrl": "https://lin.ee/your-line-url"
+        }
+      ]
+    }
+  ]
+}

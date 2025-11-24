@@ -79,3 +79,5 @@ export function initScrollReveal() {
 
   console.log("[scrollReveal] initialized, targets =", targets.length);
 }
+
+

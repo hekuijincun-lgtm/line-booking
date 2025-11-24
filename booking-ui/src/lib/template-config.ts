@@ -35,7 +35,7 @@ async function fetchJson<T>(path: string): Promise<T> {
   if (!res.ok) {
     throw new TemplateConfigError(
       "failedToLoadTemplate",
-      HTTP ${res.status} ${res.statusText}
+      "HTTP " + res.status + " " + res.statusText
     );
   }
   return (await res.json()) as T;
@@ -51,7 +51,7 @@ function getTemplateIdFromUrl(search: string): string {
 }
 
 function buildTemplateJsonPath(id: string): string {
-  return ${TEMPLATE_BASE_PATH}/${id}.json;
+  return TEMPLATE_BASE_PATH + "/" + id + ".json";
 }
 
 export async function loadTemplateConfig(templateId: string): Promise<TemplateConfig> {
@@ -83,6 +83,7 @@ export async function loadAllTemplateConfigs(): Promise<TemplateConfig[]> {
     throw new TemplateConfigError("loadTemplateConfig", String(err));
   }
 }
+
 
 
 

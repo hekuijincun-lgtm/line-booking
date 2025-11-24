@@ -14,7 +14,7 @@ const BookingLayout: React.FC<BookingLayoutProps> = ({
   return (
     <div className="min-h-screen bg-kb-bg text-kb-textMain">
       {/* Header */}
-      <header className="border-b border-kb-border bg-white/70 backdrop-blur-md">
+      <header className="border-b border-kb-border bg-gradient-to-b from-slate-50 to-slate-100/70 backdrop-blur-md">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4 md:px-6">
           <div className="flex items-center gap-2">
             <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-kb-navy">
@@ -59,7 +59,7 @@ const BookingLayout: React.FC<BookingLayoutProps> = ({
       </main>
 
       {/* Footer */}
-      <footer className="mt-8 border-t border-kb-border bg-white/70">
+      <footer className="mt-8 border-t border-kb-border bg-gradient-to-b from-slate-50 to-slate-100/70">
         <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-2 px-4 py-4 text-[11px] text-kb-textMuted md:flex-row md:px-6">
           <span>© {new Date().getFullYear()} Kazuki Booking</span>
           <span>Powered by LINE × Cloudflare × Kazuki Factory</span>
@@ -70,3 +70,7 @@ const BookingLayout: React.FC<BookingLayoutProps> = ({
 };
 
 export default BookingLayout;
+
+
+
+

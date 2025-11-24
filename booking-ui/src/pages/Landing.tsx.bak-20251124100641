@@ -1,0 +1,115 @@
+import * as React from "react";
+
+const BeforeAfterSection: React.FC = () => {
+  return (
+    <section className="lp-section">
+      <h2 className="lp-h2">導入前と導入後のイメージ</h2>
+      <div className="lp-ba-wrap">
+        <div className="lp-ba-card before">
+          <div className="label">BEFORE</div>
+          <ul>
+            <li>予約用LINEがプライベートと混ざり、返信遅れが発生</li>
+            <li>予約メモがノート/頭の中で散らかり、ダブルブッキング不安</li>
+            <li>前日リマインド送れず、当日キャンセルが地味に痛い</li>
+          </ul>
+        </div>
+        <div className="lp-ba-card after">
+          <div className="label">AFTER</div>
+          <ul>
+            <li>予約〜リマインドまでLINE上で一元管理し不安ゼロ</li>
+            <li>返信テンプレで対応時間が1/3に短縮</li>
+            <li>来店履歴もまとまり「次回予約のご案内」が自然に取れる</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const PricingSection: React.FC = () => {
+  return (
+    <section className="lp-section">
+      <h2 className="lp-h2">料金プラン</h2>
+      <div className="lp-pricing-grid">
+        <div className="lp-price-card">
+          <div className="plan-name">Standard</div>
+          <div className="plan-price">¥6,980 / 月（税込）</div>
+          <ul className="plan-features">
+            <li>LINE予約受付</li>
+            <li>自動リマインド（前日/当日）</li>
+            <li>予約一覧ダッシュボード</li>
+            <li>メニュー / 営業時間カスタマイズ</li>
+            <li>チャットサポート</li>
+          </ul>
+          <a
+            href="https://lin.ee/your-line-url"
+            target="_blank"
+            rel="noreferrer"
+            className="lp-primary-button"
+          >
+            まずはLINEでまつげサロン向けデモを見る
+          </a>
+        </div>
+
+        <div className="lp-price-card">
+          <div className="plan-name">Growth</div>
+          <div className="plan-price">¥12,800 / 月（税込）</div>
+          <ul className="plan-features">
+            <li>Standard の全機能</li>
+            <li>複数スタッフ・指名管理</li>
+            <li>顧客カルテ / 来店履歴</li>
+            <li>売上・再来率レポート</li>
+            <li>優先サポート</li>
+          </ul>
+          <a
+            href="https://lin.ee/your-line-url"
+            target="_blank"
+            rel="noreferrer"
+            className="lp-secondary-button"
+          >
+            複数スタッフプランをLINEで相談する
+          </a>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const FloatingCta: React.FC = () => {
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur">
+      <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3">
+        <div className="flex-1">
+          <p className="text-[11px] font-semibold text-slate-800">
+            まずはLINEで相談・デモ希望
+          </p>
+          <p className="text-[10px] text-slate-500">
+            所要時間3分 / 強引な営業・しつこい連絡は一切なし
+          </p>
+        </div>
+        <a
+          href="https://lin.ee/your-line-url"
+          target="_blank"
+          rel="noreferrer"
+          className="flex h-10 flex-1 items-center justify-center rounded-full bg-sky-800 text-[11px] font-semibold text-white transition hover:bg-sky-700 active:scale-[0.99]"
+        >
+          💚 LINEで無料デモを見る
+        </a>
+      </div>
+    </div>
+  );
+};
+
+const Landing: React.FC = () => {
+  return (
+    <div className="min-h-screen bg-[#F5F7FB] text-slate-900">
+      <main className="mx-auto max-w-5xl px-0 pt-6 pb-28 md:px-0 md:pt-8">
+        <BeforeAfterSection />
+        <PricingSection />
+      </main>
+      <FloatingCta />
+    </div>
+  );
+};
+
+export default Landing;

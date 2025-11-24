@@ -1,0 +1,53 @@
+{
+  "id": "hair-owner-lp-soft",
+  "title": "Kazuki Booking | LINE予約SaaS",
+  "primaryColor": "#1A4B67",
+  "accentColor": "#4C7C93",
+  "sections": [
+    {
+      "type": "html",
+      "html": "<section style=\"padding:32px; max-width:960px; margin:0 auto;\">\n  <div style=\"font-size:11px; color:#4C7C93; margin-bottom:10px;\">\n    美容サロン向け | LINE予約SaaS\n  </div>\n\n  <h1 style=\"font-size:30px; font-weight:600; line-height:1.35; color:#1A4B67; margin-bottom:12px;\">\n    施術に集中したいサロンオーナーのための、<br>\n    <span style=\"color:#4C7C93;\">静かに強い LINE 予約システム。</span>\n  </h1>\n\n  <p style=\"font-size:13px; line-height:1.7; color:#4B5563; margin-bottom:16px;\">\n    LINEひとつで、予約・自動リマインド・リピート導線まで。<br>\n    予約管理のストレスを手放して「また来たい」を増やす。<br>\n    初期費用0円、1アカウントから導入OK。\n  </p>\n\n  <div style=\"font-size:13px; line-height:1.7; color:#4B5563; margin-bottom:22px;\">\n    <div style=\"font-weight:600; color:#1A4B67; margin-bottom:6px;\">\n      こんなサロン様に選ばれています\n    </div>\n    <ul style=\"padding-left:1.1em; margin:0;\">\n      <li>予約LINEの返信がいつも後回しになってしまう</li>\n      <li>施術もSNSも一人でこなしていて、予約管理に時間を取られたくない</li>\n      <li>新規は来るけれど、リピートの仕組みがまだ整っていない</li>\n      <li>LINEは使っているが、うまく予約導線を作れていない</li>\n    </ul>\n  </div>\n\n  <div style=\"border-radius:18px; border:1px solid #E5E7EB; overflow:hidden; margin-bottom:24px;\">\n    <img src=\"/images/booking-hero-preview.png\" style=\"width:100%; display:block;\" />\n    <div style=\"font-size:11px; color:#6B7280; border-top:1px solid #E5E7EB; padding:8px 12px;\">\n      * 実際の予約画面イメージ（店舗ごとにカスタム可能）\n    </div>\n  </div>\n\n  <div style=\"display:flex; flex-wrap:wrap; gap:12px; margin-bottom:12px;\">\n    <a href=\"https://lin.ee/your-line-url\"\n       style=\"flex:1 1 220px; display:flex; justify-content:center; align-items:center;\n              background:#4C7C93; color:#FFFFFF; height:48px; border-radius:9999px;\n              font-size:14px; font-weight:600; text-decoration:none;\">\n      💎 LINEで「導入メリットまとめPDF」を受け取る\n    </a>\n    <a href=\"https://lin.ee/your-line-url\"\n       style=\"flex:1 1 220px; display:flex; justify-content:center; align-items:center;\n              background:#E5E7EB; color:#1A4B67; height:48px; border-radius:9999px;\n              font-size:14px; font-weight:600; text-decoration:none;\">\n      💚 LINEで無料相談・デモ予約\n    </a>\n  </div>\n\n  <p style=\"font-size:10px; color:#9CA3AF; margin-top:2px; margin-bottom:18px;\">\n    所要3分 / 強引な営業・しつこい連絡は一切ありません\n  </p>\n\n  <!-- Before / After ブロック -->\n  <div style=\"margin-top:8px; padding:16px 0 8px;\">\n    <h2 style=\"font-size:16px; font-weight:600; color:#1A4B67; margin-bottom:8px;\">\n      導入前と導入後のイメージ\n    </h2>\n    <div style=\"display:flex; flex-wrap:wrap; gap:16px;\">\n      <div style=\"flex:1 1 260px; padding:12px 16px; border-radius:16px; background:#F3F4F6;\">\n        <div style=\"font-size:12px; font-weight:600; color:#9CA3AF; margin-bottom:4px;\">Before</div>\n        <ul style=\"font-size:13px; line-height:1.7; color:#4B5563; padding-left:1.1em; margin:0;\">\n          <li>頭の中とノートで予約管理していて、ダブルブッキングが怖い</li>\n          <li>返信が遅れて、お客様からのLINEが溜まりがち</li>\n          <li>前日リマインドを送る余裕がなく、当日キャンセルがポツポツ出る</li>\n        </ul>\n      </div>\n      <div style=\"flex:1 1 260px; padding:12px 16px; border-radius:16px; background:#ECF5F9;\">\n        <div style=\"font-size:12px; font-weight:600; color:#4C7C93; margin-bottom:4px;\">After</div>\n        <ul style=\"font-size:13px; line-height:1.7; color:#1F2933; padding-left:1.1em; margin:0;\">\n          <li>予約枠はすべてLINE上で自動管理、ダブルブッキングの心配なし</li>\n          <li>返信テンプレと自動リマインドで、LINE対応にかかる時間が1/3に</li>\n          <li>来店履歴がまとまって見られ、次回来店の提案がしやすくなる</li>\n        </ul>\n      </div>\n    </div>\n  </div>\n</section>"
+    },
+    {
+      "type": "html",
+      "html": "<section style=\"padding:24px 32px 8px; max-width:960px; margin:0 auto;\">\n  <h2 style=\"font-size:18px; font-weight:600; color:#1A4B67; margin-bottom:8px;\">\n    導入前と導入後のイメージ\n  </h2>\n  <div style=\"display:flex; flex-wrap:wrap; gap:16px;\">\n    <div style=\"flex:1 1 260px; padding:12px 16px; border-radius:16px; background:#F3F4F6;\">\n      <div style=\"font-size:12px; font-weight:600; color:#9CA3AF; margin-bottom:4px;\">Before</div>\n      <ul style=\"font-size:13px; line-height:1.7; color:#4B5563; padding-left:1.1em; margin:0;\">\n        <li>頭の中とノートで予約管理していて、ダブルブッキングが怖い</li>\n        <li>返信が遅れて、お客様からのLINEが溜まりがち</li>\n        <li>前日リマインドを送る余裕がなく、当日キャンセルがポツポツ出る</li>\n      </ul>\n    </div>\n    <div style=\"flex:1 1 260px; padding:12px 16px; border-radius:16px; background:#ECF5F9;\">\n      <div style=\"font-size:12px; font-weight:600; color:#4C7C93; margin-bottom:4px;\">After</div>\n      <ul style=\"font-size:13px; line-height:1.7; color:#1F2933; padding-left:1.1em; margin:0;\">\n        <li>予約枠はすべてLINE上で自動管理、ダブルブッキングの心配なし</li>\n        <li>返信テンプレと自動リマインドで、LINE対応にかかる時間が1/3に</li>\n        <li>来店履歴がまとまって見られ、次回来店の提案がしやすくなる</li>\n      </ul>\n    </div>\n  </div>\n</section>"
+    },
+    {
+      "type": "html",
+      "html": "<section style=\"padding:24px 32px 8px; max-width:960px; margin:0 auto;\">\n  <h2 style=\"font-size:18px; font-weight:600; color:#1A4B67; margin-bottom:8px;\">\n    導入前と導入後のイメージ\n  </h2>\n  <div style=\"display:flex; flex-wrap:wrap; gap:16px;\">\n    <div style=\"flex:1 1 260px; padding:12px 16px; border-radius:16px; background:#F3F4F6;\">\n      <div style=\"font-size:12px; font-weight:600; color:#9CA3AF; margin-bottom:4px;\">Before</div>\n      <ul style=\"font-size:13px; line-height:1.7; color:#4B5563; padding-left:1.1em; margin:0;\">\n        <li>頭の中とノートで予約管理していて、ダブルブッキングが怖い</li>\n        <li>返信が遅れて、お客様からのLINEが溜まりがち</li>\n        <li>前日リマインドを送る余裕がなく、当日キャンセルがポツポツ出る</li>\n      </ul>\n    </div>\n    <div style=\"flex:1 1 260px; padding:12px 16px; border-radius:16px; background:#ECF5F9;\">\n      <div style=\"font-size:12px; font-weight:600; color:#4C7C93; margin-bottom:4px;\">After</div>\n      <ul style=\"font-size:13px; line-height:1.7; color:#1F2933; padding-left:1.1em; margin:0;\">\n        <li>予約枠はすべてLINE上で自動管理、ダブルブッキングの心配なし</li>\n        <li>返信テンプレと自動リマインドで、LINE対応にかかる時間が1/3に</li>\n        <li>来店履歴がまとまって見られ、次回来店の提案がしやすくなる</li>\n      </ul>\n    </div>\n  </div>\n</section>"
+    },
+    {
+      "type": "pricing",
+      "plans": [
+        {
+          "name": "Standard",
+          "price": "¥6,980 / 月（税込）",
+          "popular": true,
+          "features": [
+            "LINE予約受付",
+            "自動リマインド（前日/当日）",
+            "予約一覧ダッシュボード",
+            "メニュー / 営業時間カスタマイズ",
+            "チャットサポート"
+          ],
+          "buttonLabel": "LINEで無料デモを見る",
+          "buttonUrl": "https://lin.ee/your-line-url"
+        },
+        {
+          "name": "Growth",
+          "price": "¥12,800 / 月（税込）",
+          "popular": false,
+          "features": [
+            "Standard の全機能",
+            "複数スタッフ・指名管理",
+            "顧客カルテ / 来店履歴",
+            "売上・再来率レポート",
+            "優先サポート"
+          ],
+          "buttonLabel": "Growthプランについて相談する",
+          "buttonUrl": "https://lin.ee/your-line-url"
+        }
+      ]
+    }
+  ]
+}

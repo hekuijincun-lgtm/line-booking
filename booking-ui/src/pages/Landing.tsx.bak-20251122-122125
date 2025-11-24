@@ -1,0 +1,209 @@
+/**
+ * Kazuki Booking 公式 LP（統一版・エレガント版）
+ * - 白ベース / ネイビー & ダックブルー
+ * - Hero + Pricing + 下固定CTA
+ * - 他ファイルへの依存ナシ（この1枚だけ触ればOK）
+ */
+
+function HeroSection() {
+  return (
+    <section className="space-y-6">
+      {/* ラベル */}
+      <div className="inline-flex items-center rounded-full bg-[#F3F4F6] px-3 py-1 text-[11px] font-semibold text-[#4C7C93]">
+        <span className="mr-2 h-1.5 w-1.5 rounded-full bg-[#4C7C93]" />
+        美容サロン向け&nbsp;|&nbsp;LINE予約SaaS
+      </div>
+
+      {/* タイトル */}
+      <div className="space-y-3">
+        <h1 className="text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
+          <span className="block text-[#1A4B67]">
+            施術に集中したいサロンオーナーのための
+          </span>
+          <span className="mt-1 block text-[#4C7C93]">
+            静かに強い LINE 予約システム。
+          </span>
+        </h1>
+        <p className="text-sm leading-relaxed text-[#4B5563]">
+          LINEひとつで、予約・自動リマインド・リピート導線まで。
+          予約管理のストレスを手放して、「また来たい」を増やす。
+          <br />
+          初期費用0円、1アカウントから導入OK。
+        </p>
+      </div>
+
+      {/* Hero画像（UIキャプチャなどに差し替えOK） */}
+      <div className="overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white">
+        <div className="relative aspect-[4/5] w-full">
+          <img
+            src="/images/booking-hero-preview.png"
+            alt="Kazuki Booking の予約画面イメージ"
+            className="h-full w-full object-cover"
+          />
+        </div>
+        <div className="border-t border-[#E5E7EB] px-4 py-3 text-xs text-[#6B7280]">
+          * 実際の管理画面・予約画面イメージです（サロンごとにカスタム可能）
+        </div>
+      </div>
+
+      {/* 1st CTA */}
+      <div className="space-y-2">
+        <a
+          href="https://lin.ee/your-line-url"
+          target="_blank"
+          rel="noreferrer"
+          className="flex h-12 items-center justify-center rounded-full bg-[#4C7C93] text-sm font-semibold text-white shadow-sm shadow-[#4C7C93]/30 transition active:scale-[0.99] hover:bg-[#3C6274]"
+        >
+          LINEで無料デモを見る
+        </a>
+        <p className="text-[11px] leading-relaxed text-[#9CA3AF]">
+          所要3分 / 強引な営業・しつこい連絡は一切ありません。
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function PricingSection() {
+  return (
+    <section className="mt-10 space-y-6">
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold text-[#1A4B67]">導入プラン</h2>
+        <p className="text-xs text-[#6B7280]">
+          個人サロン〜小規模サロンにフィットする料金設計。
+          まずはテスト導入からでもOKです。
+        </p>
+      </div>
+
+      {/* プランカード */}
+      <div className="space-y-4">
+        {/* Standard */}
+        <div className="rounded-2xl border border-[#E5E7EB] bg-white/95 p-4 shadow-sm shadow-black/5">
+          <div className="mb-2 flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
+                Standard
+              </p>
+              <p className="text-sm font-semibold text-[#111827]">
+                個人サロン・フリーランス向け
+              </p>
+            </div>
+            <span className="rounded-full bg-[#4C7C93]/10 px-3 py-1 text-[11px] font-semibold text-[#4C7C93]">
+              一番人気
+            </span>
+          </div>
+
+          <div className="mb-3 flex items-baseline gap-1">
+            <span className="text-2xl font-bold text-[#1A4B67]">¥6,980</span>
+            <span className="text-xs text-[#6B7280]">/ 月（税込）</span>
+          </div>
+
+          <ul className="mb-4 space-y-1.5 text-xs text-[#4B5563]">
+            <li>・LINE予約受付</li>
+            <li>・自動リマインド配信（前日 / 当日）</li>
+            <li>・予約一覧ダッシュボード</li>
+            <li>・メニュー / 営業時間のカスタマイズ</li>
+            <li>・チャットサポート</li>
+          </ul>
+
+          <a
+            href="https://lin.ee/your-line-url"
+            target="_blank"
+            rel="noreferrer"
+            className="flex h-10 items-center justify-center rounded-full bg-[#4C7C93] text-xs font-semibold text-white transition active:scale-[0.99] hover:bg-[#3C6274]"
+          >
+            このプランで話を聞いてみる
+          </a>
+        </div>
+
+        {/* Growth プラン */}
+        <div className="rounded-2xl border border-[#E5E7EB] bg-white/80 p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
+                Growth
+              </p>
+              <p className="text-sm font-semibold text-[#111827]">
+                複数スタッフ・売上強化サロン向け
+              </p>
+            </div>
+          </div>
+
+          <p className="mb-3 text-xs text-[#4B5563]">
+            売上が伸びてきたタイミングで、
+            複数スタッフ対応・高度な分析レポートを追加できます。
+          </p>
+
+          <p className="mb-4 text-xs font-semibold text-[#1A4B67]">
+            ¥12,800 / 月（税込）
+          </p>
+
+          <ul className="mb-3 space-y-1.5 text-[11px] text-[#4B5563]">
+            <li>・Standard の内容すべて</li>
+            <li>・スタッフ別予約 / 指名管理</li>
+            <li>・顧客カルテ・来店履歴</li>
+            <li>・売上 / リピート分析レポート</li>
+            <li>・優先サポート</li>
+          </ul>
+
+          <p className="text-[11px] text-[#9CA3AF]">
+            ※ まずは Standard プランからのスタートで十分です。
+          </p>
+        </div>
+
+        {/* Enterprise（文章のみでブランド感だけ出す） */}
+        <div className="rounded-2xl border border-dashed border-[#E5E7EB] bg-[#F9FAFB] p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9CA3AF]">
+            Enterprise
+          </p>
+          <p className="mt-1 text-sm font-semibold text-[#111827]">
+            多店舗展開・スクール運営サロン向け（個別お見積り）
+          </p>
+          <p className="mt-2 text-[11px] text-[#6B7280]">
+            ¥29,800〜 / 月（税込）。複数ブランド管理 / 従業員アカウント無制限 /
+            個別サポートなど、規模に合わせてご提案いたします。
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FloatingCta() {
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-50 border-t border-[#E5E7EB] bg-white/95 backdrop-blur">
+      <div className="mx-auto flex max-w-[480px] items-center gap-3 px-4 py-3">
+        <div className="flex-1">
+          <p className="text-[11px] font-semibold text-[#111827]">
+            まずはLINEで相談・デモ希望
+          </p>
+          <p className="text-[10px] text-[#6B7280]">
+            所要時間3分 / 強引な営業は一切なし
+          </p>
+        </div>
+        <a
+          href="https://lin.ee/your-line-url"
+          target="_blank"
+          rel="noreferrer"
+          className="flex h-10 flex-1 items-center justify-center rounded-full bg-[#4C7C93] text-[11px] font-semibold text-white transition active:scale-[0.99] hover:bg-[#3C6274]"
+        >
+          LINEで無料デモを見る
+        </a>
+      </div>
+    </div>
+  );
+}
+
+export default function Landing() {
+  return (
+    <div className="min-h-screen bg-white text-[#111827]">
+      <main className="mx-auto max-w-[480px] px-4 pt-6 pb-28">
+        <HeroSection />
+        <PricingSection />
+        {/* 今後「導入メリット」「FAQ」などを追加してもOK */}
+      </main>
+
+      <FloatingCta />
+    </div>
+  );
+}
