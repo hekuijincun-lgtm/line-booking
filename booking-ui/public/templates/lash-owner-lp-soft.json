@@ -47,12 +47,12 @@
     }
   ],
   "hero": {
-    "badge": "",
-    "title": "",
-    "subtitle": "",
-    "description": "",
-    "primaryCtaLabel": "",
-    "primaryCtaSubLabel": "",
-    "secondaryCtaLabel": ""
+    "badge": "まつげサロン向け｜LINE予約SaaS",
+    "title": "「LINEだけ」で予約が埋まる、まつげサロン専用の予約インフラ。",
+    "subtitle": "DM対応・返信待ち・ダブルブッキングのストレスをなくして、施術とリピートづくりにだけ集中できるLINE予約SaaSです。",
+    "description": "Instagramプロフィールと連携して、24時間自動で「LINE予約」に誘導。新規もリピーターも“埋まりやすい”導線をテンプレ化しました。",
+    "primaryCtaLabel": "まずはLINEでまつげサロン向けデモを見る",
+    "primaryCtaSubLabel": "30秒で友だち追加／いつでも無料でやめられます",
+    "secondaryCtaLabel": "複数スタッフ・複数店舗の相談をLINEでする"
   }
 }
