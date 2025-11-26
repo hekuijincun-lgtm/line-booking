@@ -7,7 +7,7 @@
     {
       "id": "hero",
       "type": "html",
-      "title": "",
+      "title": "もう予約の管理に振り回されない。まつげサロンのための次世代LINE予約システム",
       "html": "<section class=\"lp-animate\" style=\"padding:40px 32px 48px; max-width:960px; margin:24px auto 16px;\">\n  <div style=\"background:rgba(255,255,255,0.96); border-radius:24px; padding:28px 24px 32px; box-shadow:0 18px 40px rgba(15,23,42,0.08);\">\n    <p style=\"font-size:13px; font-weight:600; letter-spacing:0.08em; color:#64748b; text-transform:uppercase; margin-bottom:8px;\">\n      小さなまつげサロンのための &nbsp;LINE予約オールインワン\n    </p>\n    <h1 style=\"font-size:clamp(26px,4vw,32px); font-weight:700; color:#0f172a; line-height:1.5; margin:0 0 14px 0;\">\n      予約LINEの返信漏れ・ダブルブッキングをゼロにして、<br/>\n      「今日は目の前のお客様だけ」に集中できる毎日へ。\n    </h1>\n    <p style=\"font-size:14px; color:#4b5563; line-height:1.7; margin:0 0 18px 0;\">\n      Kazuki Booking は、普段お使いのLINEをそのまま使いながら、<br/>\n      予約受付・リマインド・アフターフォローまで自動でさばけるように設計された\n      <span style=\"font-weight:600;\">小規模まつげサロン向けの予約パートナー</span>です。\n    </p>\n\n    <ul style=\"font-size:13px; color:#4b5563; line-height:1.7; padding-left:1.1em; margin:0 0 20px 0;\">\n      <li>予約の取りこぼし・既読スルーを自動リマインドでカバー</li>\n      <li>同じ時間帯に複数人を入れてしまう「ダブルブッキング」を自動でブロック</li>\n      <li>来店履歴をもとに、次回予約のご案内やメニュー提案がしやすくなる設計</li>\n    </ul>\n\n    <div style=\"display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:4px;\">\n      <a href=\"#line-demo\"\n         style=\"display:inline-flex; align-items:center; justify-content:center; padding:10px 22px; border-radius:999px; background:#1d4ed8; color:#ffffff; font-size:14px; font-weight:600; text-decoration:none; box-shadow:0 12px 30px rgba(37,99,235,0.45);\">\n        LINEでデモを見る\n      </a>\n      <span style=\"font-size:12px; color:#6b7280;\">\n        月額サブスク・解約はいつでもOK / はじめの30日間はじっくりお試し\n      </span>\n    </div>\n  </div>\n</section>"
     },
     {
@@ -34,7 +34,7 @@
             "メニュー / 営業時間カスタマイズ",
             "チャットサポート"
           ],
-          "buttonLabel": "LINEで無料デモを見る",
+          "buttonLabel": "まずはLINEでまつげサロン向けデモを見る",
           "buttonUrl": "https://lin.ee/your-line-url"
         },
         {
@@ -48,7 +48,7 @@
             "売上・再来率レポート",
             "優先サポート"
           ],
-          "buttonLabel": "Growthプランについて相談する",
+          "buttonLabel": "複数スタッフプランをLINEで相談する",
           "buttonUrl": "https://lin.ee/your-line-url"
         }
       ]
