@@ -1,36 +1,12 @@
 <!doctype html>
-<html lang="en">
+<html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <title>Kazuki Booking UI (reset)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>booking-ui</title>
   </head>
-  <body>
+  <body style="margin:0;">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script id="remove-dup-before-after">
-    window.addEventListener("load", function () {
-      try {
-        var headings = Array.prototype.slice.call(
-          document.querySelectorAll("h2")
-        ).filter(function (h) {
-          return (h.textContent || "").indexOf("導入前と導入後のイメージ") !== -1;
-        });
-
-        if (headings.length > 1) {
-          for (var i = 1; i < headings.length; i++) {
-            var sec = headings[i].closest("section") || headings[i].parentElement;
-            if (sec && sec.parentElement) {
-              sec.parentElement.removeChild(sec);
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("remove-dup-before-after failed", e);
-      }
-    });
-  </script>
-</body>
+  </body>
 </html>
-

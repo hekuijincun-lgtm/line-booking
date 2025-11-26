@@ -1,24 +1,17 @@
+import "./lp-scroll";
+import "./lp-scroll";
+import "./lp-scroll";
 import React from "react";
 import ReactDOM from "react-dom/client";
-import Landing from "./pages/Landing";
-import './index.css';
-import './styles/animations.css';
-import { initScrollReveal } from './lib/scrollReveal';
+import Landing from "./pages/index";
+import "./index.css";
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <Landing />
   </React.StrictMode>
 );
-if (typeof window !== "undefined") {
-  window.addEventListener("load", () => {
-    try {
-      initScrollReveal();
-    } catch (e) {
-      console.error("initScrollReveal failed", e);
-    }
-  });
-}
+
 
 
 

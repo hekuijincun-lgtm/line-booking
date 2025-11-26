@@ -1,58 +1,26 @@
-{
-  "profiles": [
-    {
-      "growthButtonLabel": "複数スタッフ対応プランをLINEで相談する",
-      "persona": "ひとり営業のプライベートサロンオーナー",
-      "problems": [
-        "予約LINEの返信が後回しになってしまう",
-        "ダブルブッキングが怖い",
-        "前日リマインドを送れず当日キャンセルがつらい"
-      ],
-      "standardButtonLabel": "まずはLINEでデモを見る",
-      "industry": "hair",
-      "label": "美容室・ひとりオーナー",
-      "id": "hair-solo",
-      "tone": "ですます"
-    },
-    {
-      "growthButtonLabel": "複数スタッフプランをLINEで相談する",
-      "persona": "まつげエクステ・まつげパーマ中心のサロンオーナー",
-      "problems": [
-        "細かいメニューと所要時間の管理が大変",
-        "予約の入れ間違いで施術時間が足りなくなるのが不安",
-        "リピーターさんの周期管理が頭の中だけになっている"
-      ],
-      "standardButtonLabel": "まずはLINEでまつげサロン向けデモを見る",
-      "industry": "lash",
-      "label": "まつげサロン・ひとりオーナー",
-      "id": "lash-solo",
-      "tone": "やさしいですます"
-    },
-    {
-      "growthButtonLabel": "回数券管理プランをLINEで相談する",
-      "persona": "フェイシャル・ボディ中心のエステオーナー",
-      "problems": [
-        "カウンセリングと施術でLINEを見る時間がない",
-        "ドタキャンで売上が読めない"
-      ],
-      "standardButtonLabel": "LINEでエステ向けデモを見る",
-      "industry": "esthe",
-      "label": "エステ・ひとりオーナー",
-      "id": "esthe-solo",
-      "tone": "やさしいですます"
-    },
-    {
-      "id": "chair-solo",
-      "industry": "chair",
-      "label": "チェアサロン・ひとりオーナー",
-      "persona": "チェア系メニュー中心のひとりサロンオーナー",
-      "problems": [
-        "メニューごとの所要時間がバラバラで予約調整が大変",
-        "LINEのやりとりが増えすぎて返信漏れが不安"
-      ],
-      "tone": "ですます",
-      "standardButtonLabel": "まずはLINEでチェア向けデモを見る",
-      "growthButtonLabel": "複数スタッフプランをLINEで相談する"
-    }
-  ]
-}
+[
+  {
+    "heroCtaLabel": "LINEで『空き状況・料金』を相談する",
+    "title": "美容室オーナー向けLP",
+    "footerCtaLabel": "LINEで空き状況と料金を聞いてみる",
+    "footerCtaSub": "予約前のご相談だけでもOKです。押し売り・しつこい営業は一切なし。",
+    "heroCtaSub": "所要時間3分 / ご相談はすべてLINEだけで完結",
+    "id": "hair-owner-lp-soft-v2"
+  },
+  {
+    "heroCtaLabel": "LINEで『空き状況・料金』を相談する",
+    "title": "まつげサロンオーナー向けLP",
+    "footerCtaLabel": "LINEで空き状況と料金を聞いてみる",
+    "footerCtaSub": "予約前のご相談だけでもOKです。押し売り・しつこい営業は一切なし。",
+    "heroCtaSub": "所要時間3分 / ご相談はすべてLINEだけで完結",
+    "id": "lash-owner-lp-soft-v2"
+  },
+  {
+    "id": "lash-owner-lp-soft-v2",
+    "heroCtaLabel": "LINEで『空き状況・料金』を相談する",
+    "footerCtaLabel": "LINEで空き状況と料金を聞いてみる",
+    "title": "まつげサロンオーナー向けLP",
+    "heroCtaSub": "所要時間3分 / ご相談はすべてLINEだけで完結",
+    "footerCtaSub": "予約前のご相談だけでもOKです。押し売り・しつこい営業は一切なし。"
+  }
+]

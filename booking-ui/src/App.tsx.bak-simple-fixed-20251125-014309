@@ -1,0 +1,106 @@
+import { useEffect, useState } from "react";
+
+type LpSection = {
+  type: string;
+  html?: string;
+};
+
+function useTemplateId(): string {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("template") ?? "hair-owner-lp-soft-v2";
+}
+
+export default function App() {
+  const templateId = useTemplateId();
+  const [sections, setSections] = useState<LpSection[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+
+    fetch(/templates/\.json)
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(\HTTP \ \\);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        if (!data.sections || !Array.isArray(data.sections)) {
+          throw new Error("invalid template json: sections not array");
+        }
+        setSections(data.sections);
+      })
+      .catch((err: unknown) => {
+        console.error("LP load error", err);
+        const msg =
+          err instanceof Error ? err.message : "unknown error";
+        setError(msg);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, [templateId]);
+
+  if (loading) {
+    return (
+      <main style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif"
+      }}>
+        <div>Loading LP... ({templateId})</div>
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main style={{
+        minHeight: "100vh",
+        padding: "32px",
+        fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif"
+      }}>
+        <h1 style={{ fontSize: "20px", marginBottom: "12px" }}>
+          LP 読み込みエラー
+        </h1>
+        <p style={{ color: "#b91c1c", marginBottom: "8px" }}>
+          template = {templateId}
+        </p>
+        <pre style={{
+          background: "#fee2e2",
+          padding: "12px",
+          borderRadius: "8px",
+          fontSize: "12px",
+          whiteSpace: "pre-wrap"
+        }}>
+{String(error)}
+        </pre>
+      </main>
+    );
+  }
+
+  return (
+    <main
+      style={{
+        minHeight: "100vh",
+        background: "#f8fafc",
+        fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif"
+      }}
+    >
+      {sections?.map((s, i) => {
+        if (s.type !== "html" || !s.html) return null;
+        return (
+          <section
+            key={i}
+            dangerouslySetInnerHTML={{ __html: s.html }}
+          />
+        );
+      })}
+    </main>
+  );
+}

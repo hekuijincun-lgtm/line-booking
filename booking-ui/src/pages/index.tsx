@@ -1,23 +1,23 @@
+import { BeforeAfterSection } from "../components/sections/BeforeAfterSection";
 /**
- * Kazuki Booking 公式 LP（統一版）
+ * Kazuki Booking - まつげサロン向け LP
  * - スマホ最適化
- * - Hero + Pricing + 下固定CTA
- * - 他ファイルへの依存ナシ（この1枚だけ触ればOK）
+ * - Hero + Pricing + BEFORE/AFTER + 下固定CTA
  */
 
 function HeroSection() {
   return (
     <section className="space-y-6">
       {/* ラベル */}
-      <div className="inline-flex items-center rounded-full bg-slate-50/80 px-3 py-1 text-xs font-semibold text-amber-500">
+      <div className="inline-flex items-center rounded-full bg-slate-50/80 px-3 py-1 text-xs font-semibold text-rose-500">
         <span className="mr-2 h-1.5 w-1.5 rounded-full bg-emerald-400" />
-        美容サロン向け&nbsp;|&nbsp;LINE予約SaaS
+        まつげサロン向け&nbsp;|&nbsp;LINE予約SaaS
       </div>
 
       {/* タイトル */}
       <div className="space-y-3">
         <h1 className="text-2xl font-bold leading-tight tracking-tight sm:text-3xl">
-          <span className="block text-amber-500">Kazuki Booking</span>
+          <span className="block text-rose-500">Kazuki Booking</span>
           <span className="block">
             「LINEだけ」で
             <span className="text-amber-200">
@@ -27,13 +27,14 @@ function HeroSection() {
           </span>
         </h1>
         <p className="text-sm leading-relaxed text-slate-800">
-          予約の取りこぼし・返信漏れ・ダブルブッキングをゼロにして、
-          あなたは施術と集客に集中。<br />
-          初期費用0円、1アカウントから導入OK。
+          マツエク・ラッシュリフトの予約LINEに追われる毎日から卒業。
+          ダブルブッキングと返信漏れをゼロにして、<br />
+          あなたはデザイン提案とリピートづくりに集中できます。
+          初期費用0円、1席から導入OK。
         </p>
       </div>
 
-      {/* Hero画像（UIキャプチャなどに差し替えOK） */}
+      {/* Hero画像（ラッシュ用キャプチャに差し替えOK） */}
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/60">
         <div className="relative aspect-[4/5] w-full">
           <img
@@ -69,11 +70,9 @@ function PricingSection() {
   return (
     <section className="mt-10 space-y-6">
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold text-amber-200">
-          導入プラン
-        </h2>
+        <h2 className="text-lg font-semibold text-amber-200">導入プラン</h2>
         <p className="text-xs text-slate-800">
-          個人サロン〜小規模サロンにフィットする料金設計。
+          1席の個人サロンから、小さめのまつげサロンまでフィットする料金設計。
           まずはテスト導入からでもOKです。
         </p>
       </div>
@@ -88,23 +87,22 @@ function PricingSection() {
                 Standard
               </p>
               <p className="text-sm font-semibold text-slate-900">
-                個人サロン向けベースプラン
+                1席〜少人数サロン向けベースプラン
               </p>
             </div>
-            <span className="rounded-full bg-[#4C7C93]/10 px-3 py-1 text-[11px] font-semibold text-emerald-700">
-              一番人気
+            <span className="rounded-full bg-rose-100 px-3 py-1 text-[11px] font-semibold text-rose-700">
+              まつげサロン人気
             </span>
           </div>
 
           <div className="mb-3 flex items-baseline gap-1">
-            <span className="text-2xl font-bold text-amber-500">
-              ¥7,000
-            </span>
+            <span className="text-2xl font-bold text-amber-500">¥7,000</span>
             <span className="text-xs text-slate-700">/ 月（税込）</span>
           </div>
 
           <ul className="mb-4 space-y-1.5 text-xs text-slate-800">
             <li>・LINE予約ボット（枠管理 / ダブルブッキング防止）</li>
+            <li>・メニュー別の施術時間設定（マツエク / ラッシュリフト / 下まつげなど）</li>
             <li>・自動リマインド配信（前日 / 当日）</li>
             <li>・予約一覧ダッシュボード</li>
             <li>・基本カスタマイズ（メニュー・営業時間）</li>
@@ -129,14 +127,15 @@ function PricingSection() {
                 Growth
               </p>
               <p className="text-sm font-semibold text-slate-900">
-                複数スタッフ・店舗向け拡張プラン
+                複数スタッフ・2店舗目以降向け拡張プラン
               </p>
             </div>
           </div>
 
           <p className="mb-3 text-xs text-slate-800">
-            売上が伸びてきたタイミングで、<br />
-            複数スタッフ対応・高度な分析レポートを追加可能。
+            スタッフ数が増えて「どの席が空いているか分かりづらい」
+            状態になったタイミングで、<br />
+            スタッフ別カレンダーや、売上レポートなどを追加できます。
           </p>
 
           <p className="mb-4 text-xs font-semibold text-amber-200">
@@ -178,11 +177,46 @@ function FloatingCta() {
 }
 
 export default function Landing() {
+  // BEFORE / AFTER 用セクション定義（まつげサロン版）
+  const beforeAfterSection = {
+    id: "before-after",
+    title: "導入前と導入後の1日の違い",
+    subtitle:
+      "Kazuki Booking を入れると、「予約LINEに追われる毎日」から「予約オペはほぼ自動」の状態へシフトできます。",
+    style: "luxe-pink",
+    before: {
+      label: "導入前：LINE対応に追われるオーナー業務",
+      description:
+        "営業が終わってからも、寝る前まで予約LINEの返信。キャンセルや時間変更が入るたびに手帳を見ながら調整…。",
+      bullets: [
+        "・営業後も予約LINEの返信が続いて、毎晩クタクタ",
+        "・手帳やカレンダーで空き枠管理していて、たまにダブルブッキング",
+        "・当日の無断キャンセルが出ても、次の予約を入れ直す余裕がない",
+      ],
+    },
+    after: {
+      label: "導入後：予約はLINEボットに任せて、デザインと単価アップに集中",
+      description:
+        "マツエク・ラッシュリフトのメニュー別施術時間も自動で計算。リマインド配信でドタキャンも減り、リピーターづくりに集中できます。",
+      bullets: [
+        "・LINEボットが24時間自動で予約受付＆整理",
+        "・メニュー別の施術時間を考慮して枠を自動調整",
+        "・リマインド配信で当日のドタキャン率を大幅削減",
+      ],
+    },
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <main className="mx-auto max-w-3xl px-4 pt-6 pb-28">
         <HeroSection />
         <PricingSection />
+
+        {/* BEFORE / AFTER セクション */}
+        <div className="mt-12">
+          <BeforeAfterSection section={beforeAfterSection} />
+        </div>
+
         {/* 必要ならここに「導入メリット」「FAQ」など追加 */}
       </main>
 
@@ -190,16 +224,3 @@ export default function Landing() {
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-

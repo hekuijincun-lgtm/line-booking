@@ -40,3 +40,85 @@
 .read-the-docs {
   color: #888;
 }
+/* === LP Animation Pack === */
+.lp-animate {
+  opacity: 0;
+  transform: translateY(26px);
+  transition: opacity .75s cubic-bezier(.23,1,.32,1), transform .75s cubic-bezier(.23,1,.32,1);
+}
+.lp-animate.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.045); }
+  100% { transform: scale(1); }
+}
+.cta-btn {
+  animation: pulse 2.6s infinite ease-in-out;
+}
+.hero-img {
+  transform: scale(1.045);
+  transition: transform 1.5s ease-out;
+}
+.hero-img.loaded {
+  transform: scale(1);
+}
+/* === END LP Animation Pack === */
+
+/* === Kazuki Booking: LP soft animation === */
+
+/* セクション共通：下からふわっと出る */
+.lp-animate {
+  opacity: 0;
+  transform: translateY(12px);
+  animation: lp-fade-up 0.7s ease-out forwards;
+  animation-delay: var(--lp-delay, 0s);
+}
+
+@keyframes lp-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* カード系（料金プラン・安心ポイントなど）用 */
+.lp-card-animate {
+  opacity: 0;
+  transform: translateY(8px);
+  animation: lp-card-fade-up 0.5s ease-out forwards;
+  animation-delay: var(--lp-delay, 0s);
+}
+
+@keyframes lp-card-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* メインCTAボタンのホバー */
+.lp-cta-main {
+  transition: transform 0.15s ease-out,
+              box-shadow 0.15s ease-out,
+              filter 0.15s ease-out;
+}
+
+.lp-cta-main:hover {
+  transform: translateY(-1px) scale(1.01);
+  box-shadow: 0 18px 36px rgba(37, 99, 235, 0.55);
+  filter: brightness(1.02);
+}
+
+/* === /Kazuki Booking: LP soft animation === */
+

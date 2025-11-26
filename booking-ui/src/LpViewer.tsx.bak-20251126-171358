@@ -1,0 +1,106 @@
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  HairOwnerLanding,
+  type HairOwnerLandingContent,
+} from "./components/HairOwnerLanding";
+
+type TemplateId = "hair-owner-lp-soft";
+
+type TemplateDef = {
+  id: TemplateId;
+  jsonPath: string;
+  component: React.ComponentType<{ content: HairOwnerLandingContent }>;
+};
+
+const TEMPLATE_MAP: Record<TemplateId, TemplateDef> = {
+  "hair-owner-lp-soft": {
+    id: "hair-owner-lp-soft",
+    jsonPath: "/templates/hair-owner-lp-soft.json",
+    component: HairOwnerLanding,
+  },
+};
+
+function getTemplateIdFromLocation(): TemplateId {
+  if (typeof window === "undefined") {
+    return "hair-owner-lp-soft";
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const fromQuery = params.get("template") as TemplateId | null;
+
+  if (fromQuery && Object.hasOwn(TEMPLATE_MAP, fromQuery)) {
+    return fromQuery;
+  }
+
+  return "hair-owner-lp-soft";
+}
+
+export const LpViewer: React.FC = () => {
+  const [content, setContent] = useState<HairOwnerLandingContent | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const templateId = useMemo(() => getTemplateIdFromLocation(), []);
+  const template = TEMPLATE_MAP[templateId];
+  const Component = template.component;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const res = await fetch(template.jsonPath, {
+          headers: {
+            "Cache-Control": "no-cache",
+          },
+        });
+
+        if (!res.ok) {
+          throw new Error(`Failed to load template JSON: ${res.status}`);
+        }
+
+        const data = (await res.json()) as HairOwnerLandingContent;
+
+        if (!cancelled) {
+          setContent(data);
+        }
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) {
+          setError("LPデータの読み込みに失敗しました。時間をおいて再度お試しください。");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [template.jsonPath]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500">
+        Loading LP…
+      </div>
+    );
+  }
+
+  if (error || !content) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500">
+        {error ?? "LPデータが見つかりませんでした。"}
+      </div>
+    );
+  }
+
+  return <Component content={content} />;
+};

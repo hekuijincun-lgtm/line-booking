@@ -1,0 +1,45 @@
+/**
+ * LP 用スクロールアニメーション
+ * .lp-animate / .lp-card-animate に対して .lp-visible を付与する
+ */
+const SELECTOR = ".lp-animate, .lp-card-animate";
+
+function setupLpScrollAnimation() {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+
+  const targets = Array.from(document.querySelectorAll<HTMLElement>(SELECTOR));
+  if (!targets.length) return;
+
+  const observer = new IntersectionObserver(
+    (entries, obs) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          const el = entry.target as HTMLElement;
+          el.classList.add("lp-visible");
+          obs.unobserve(el); // 1回表示したら監視解除
+        }
+      }
+    },
+    {
+      threshold: 0.18,
+      rootMargin: "0px 0px -10% 0px",
+    }
+  );
+
+  targets.forEach((el, index) => {
+    // data-lp-delay が無い場合は、ちょっとだけディレイを付けて自然に
+    if (!el.style.getPropertyValue("--lp-delay")) {
+      const delay = 0.03 * index;
+      el.style.setProperty("--lp-delay", `${delay}s`);
+    }
+    observer.observe(el);
+  });
+}
+
+if (document.readyState === "loading") {
+  window.addEventListener("DOMContentLoaded", () => {
+    setupLpScrollAnimation();
+  });
+} else {
+  setupLpScrollAnimation();
+}

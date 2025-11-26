@@ -1,0 +1,9 @@
+// booking-ui/src/App.tsx
+import React from "react";
+import { LpViewer } from "./LpViewer";
+
+function App() {
+  return <LpViewer />;
+}
+
+export default App;

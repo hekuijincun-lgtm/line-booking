@@ -1,0 +1,24 @@
+import React from "react";
+
+const App: React.FC = () => {
+  return (
+    <main
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "#f97316",
+        color: "#111827",
+        fontSize: 32,
+        fontFamily:
+          "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+        fontWeight: 700,
+      }}
+    >
+      <div>Kazuki Booking DEBUG APP v1 🚀</div>
+    </main>
+  );
+};
+
+export default App;

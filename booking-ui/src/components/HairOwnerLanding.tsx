@@ -2,7 +2,63 @@ import React from "react";
 
 const LINE_CTA_URL = "https://lin.ee/ovVekXY";
 
-export const HairOwnerLanding: React.FC = () => {
+export type HairOwnerLandingContent = {
+  hero: {
+    badge: string;
+    title: string;
+    /** 例: "Kazuki Booking は " */
+    leadPrefix: string;
+    /** 例: "人力で回している予約運営 を自動化するLINE予約仕組み化パッケージ" */
+    leadEmphasis: string;
+    /** 例: " です。" */
+    leadSuffix: string;
+  };
+  beforeAfter: {
+    beforeTitle: string;
+    beforeItems: string[];
+    afterTitle: string;
+    afterItems: string[];
+  };
+  mainCta: {
+    title: string;
+    body: string;
+    buttonLabel: string;
+    note: string;
+  };
+  pricing: {
+    title: string;
+    note: string;
+    plans: {
+      name: string;
+      price: string;
+      highlight?: boolean;
+      highlightLabel?: string; // 例: "スタンダード（人気）"
+      features: string[];
+    }[];
+  };
+  afterIntro: {
+    title: string;
+    items: string[];
+  };
+  faq: {
+    title: string;
+    items: {
+      question: string;
+      answer: string;
+    }[];
+  };
+  footerCta: {
+    eyebrow: string;
+    description: string;
+    buttonLabel: string;
+  };
+};
+
+type Props = {
+  content: HairOwnerLandingContent;
+};
+
+export const HairOwnerLanding: React.FC<Props> = ({ content }) => {
   const handleClick = () => window.open(LINE_CTA_URL, "_blank");
 
   return (
@@ -11,151 +67,124 @@ export const HairOwnerLanding: React.FC = () => {
         {/* HERO */}
         <section className="space-y-3">
           <p className="inline-flex items-center gap-2 text-[11px] font-semibold text-amber-700 bg-amber-50 px-3 py-1 rounded-full">
-            美容室オーナー向け予約 × 自動リマインド
+            {content.hero.badge}
           </p>
           <h1 className="text-2xl font-bold leading-tight">
-            電話対応とDMのラッシュで1日が溶けるサロン運営を卒業しませんか？
+            {content.hero.title}
           </h1>
           <p className="text-sm text-slate-600">
-            Kazuki Booking は{" "}
-            <span className="font-semibold">
-              人力で回している予約運営 を自動化するLINE予約仕組み化パッケージ
-            </span>
-            です。
+            {content.hero.leadPrefix}
+            <span className="font-semibold">{content.hero.leadEmphasis}</span>
+            {content.hero.leadSuffix}
           </p>
         </section>
 
         {/* Before / After */}
         <section className="grid md:grid-cols-2 gap-4">
           <div className="bg-white border border-rose-100 rounded-2xl p-4 space-y-2">
-            <p className="text-xs font-semibold text-rose-500">Before（導入前）</p>
+            <p className="text-xs font-semibold text-rose-500">
+              {content.beforeAfter.beforeTitle}
+            </p>
             <ul className="text-xs text-slate-700 space-y-1.5">
-              <li>・電話・DM対応で毎日1〜2時間奪われる</li>
-              <li>・予約管理がノート / LINE / ホットペッパーでバラつく</li>
-              <li>・予約抜け・ダブルブッキングが常に怖い</li>
-              <li>・新規は来るのに2回目に繋がらない</li>
-              <li>・値下げしないと新規が動かない気がする</li>
+              {content.beforeAfter.beforeItems.map((item, idx) => (
+                <li key={idx}>・{item}</li>
+              ))}
             </ul>
           </div>
 
           <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 space-y-2">
-            <p className="text-xs font-semibold text-emerald-600">After（導入後）</p>
+            <p className="text-xs font-semibold text-emerald-600">
+              {content.beforeAfter.afterTitle}
+            </p>
             <ul className="text-xs text-slate-800 space-y-1.5">
-              <li>・予約はすべてLINEが自動受付 → 施術に集中できる</li>
-              <li>・空き枠・キャンセル・リマインドの自動化</li>
-              <li>・理想の客層だけが集まる予約導線をLINEに構築</li>
-              <li>・来店履歴とメニューから次回提案が簡単</li>
-              <li>・オーナー不在でも予約運営が止まらない</li>
+              {content.beforeAfter.afterItems.map((item, idx) => (
+                <li key={idx}>・{item}</li>
+              ))}
             </ul>
           </div>
         </section>
 
         {/* メインCTA */}
         <section className="bg-white text-slate-900 rounded-2xl p-6 space-y-3">
-          <h2 className="text-lg font-semibold">
-            まずは「今の予約導線のどこがボトルネック？」を一緒に棚卸ししませんか？
-          </h2>
-          <p className="text-sm text-slate-200">
-            現状をLINEで送ってもらうだけで、あなたのサロンにとって{" "}
-            <span className="font-semibold">一番コスパのいい一手</span> を提案します。
+          <h2 className="text-lg font-semibold">{content.mainCta.title}</h2>
+          <p className="text-sm text-slate-600">
+            {content.mainCta.body}
           </p>
           <button
             onClick={handleClick}
             className="inline-flex items-center justify-center px-5 py-2.5 rounded-full text-xs font-semibold bg-amber-400 text-slate-900 hover:bg-amber-300 transition"
           >
-            LINEで無料トライアル相談をする
+            {content.mainCta.buttonLabel}
           </button>
           <p className="text-[10px] text-slate-400 mt-1">
-            ※強引な営業は一切なし／スタンプだけで終了OK
+            {content.mainCta.note}
           </p>
         </section>
 
         {/* 料金イメージ */}
         <section className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
-          <h2 className="text-base font-semibold">料金イメージ</h2>
-          <p className="text-xs text-slate-9000">
-            サロンの席数・スタッフ数・メニュー構成に合わせて個別にお見積りします。
-            下記はあくまで目安の料金です。
+          <h2 className="text-base font-semibold">{content.pricing.title}</h2>
+          <p className="text-xs text-slate-900">
+            {content.pricing.note}
           </p>
           <div className="grid md:grid-cols-3 gap-4 text-xs">
-            <div className="border border-slate-200 rounded-2xl p-4 space-y-1">
-              <p className="font-semibold">ライトプラン</p>
-              <p className="text-sm font-bold">月額 19,800円〜</p>
-              <ul className="text-slate-600 space-y-1">
-                <li>・LINE予約＋カレンダー連携</li>
-                <li>・基本的な自動リマインド</li>
-                <li>・個人サロン / 席数少なめ向け</li>
-              </ul>
-            </div>
-            <div className="border border-amber-300 bg-amber-50 rounded-2xl p-4 space-y-1">
-              <p className="font-semibold text-amber-700">スタンダード（人気）</p>
-              <p className="text-sm font-bold">月額 29,800円〜</p>
-              <ul className="text-slate-700 space-y-1">
-                <li>・リピートを意識した予約導線設計</li>
-                <li>・キャンセル穴埋め用の一斉配信サポート</li>
-                <li>・2〜4席のサロンにおすすめ</li>
-              </ul>
-            </div>
-            <div className="border border-slate-200 rounded-2xl p-4 space-y-1">
-              <p className="font-semibold">プレミアム</p>
-              <p className="text-sm font-bold">月額 49,800円〜</p>
-              <ul className="text-slate-600 space-y-1">
-                <li>・複数スタッフ / 複数メニューの同時管理</li>
-                <li>・回数券 / サブスクメニューに対応</li>
-                <li>・2店舗展開を見据えた設計相談</li>
-              </ul>
-            </div>
+            {content.pricing.plans.map((plan, index) => {
+              const isHighlight = plan.highlight;
+              const baseClasses =
+                "border rounded-2xl p-4 space-y-1";
+              const highlightClasses = isHighlight
+                ? "border-amber-300 bg-amber-50"
+                : "border-slate-200";
+
+              return (
+                <div
+                  key={index}
+                  className={`${baseClasses} ${highlightClasses}`}
+                >
+                  <p
+                    className={
+                      isHighlight
+                        ? "font-semibold text-amber-700"
+                        : "font-semibold"
+                    }
+                  >
+                    {plan.highlightLabel ?? plan.name}
+                  </p>
+                  <p className="text-sm font-bold">{plan.price}</p>
+                  <ul className="text-slate-600 space-y-1">
+                    {plan.features.map((feature, i) => (
+                      <li key={i}>・{feature}</li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
           </div>
         </section>
 
         {/* 導入イメージ */}
         <section className="bg-slate-50 rounded-2xl border border-slate-200 p-6 space-y-3">
-          <h2 className="text-base font-semibold">導入後のイメージ</h2>
+          <h2 className="text-base font-semibold">
+            {content.afterIntro.title}
+          </h2>
           <ul className="text-xs text-slate-700 space-y-1.5">
-            <li>・毎日の電話対応がほぼゼロに（LINEが一次対応）</li>
-            <li>・予約カレンダーと来店履歴が1つの画面で確認できる</li>
-            <li>・2回目・3回目に繋がるメッセージが自動で届く</li>
-            <li>・売上の山谷が見える化され、打ち手を考えやすくなる</li>
+            {content.afterIntro.items.map((item, idx) => (
+              <li key={idx}>・{item}</li>
+            ))}
           </ul>
         </section>
 
         {/* FAQ */}
         <section className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
-          <h2 className="text-base font-semibold">よくあるご質問</h2>
+          <h2 className="text-base font-semibold">{content.faq.title}</h2>
 
           <div className="space-y-3 text-sm text-slate-700">
-            <div>
-              <p className="font-semibold">
-                Q. 予約管理がバラバラで、まず何から整理すればいいか分かりません。
-              </p>
-              <p className="text-slate-600">
-                A. 現状のスクリーンショットやノートの写真をLINEで送ってもらうだけで大丈夫です。
-                そこから「どこを自動化すると一番ラクになるか」を一緒に決めていきます。
-              </p>
-            </div>
-
-            <div>
-              <p className="font-semibold">Q. ITが苦手でも使いこなせますか？</p>
-              <p className="text-slate-600">
-                A. 日常的な操作はすべてスマホのLINE上で完結する設計です。
-                初期設定もオンラインで一緒に画面を見ながら進めます。
-              </p>
-            </div>
-
-            <div>
-              <p className="font-semibold">Q. いつから使い始められますか？</p>
-              <p className="text-slate-600">
-                A. 必要な情報が揃っていれば、最短即日〜平均3日ほどで運用開始できます。
-              </p>
-            </div>
-
-            <div>
-              <p className="font-semibold">Q. 強引な営業や長期契約はありますか？</p>
-              <p className="text-slate-600">
-                A. ありません。まずは無料トライアル相談で相性を確認していただき、
-                合わないと感じた場合はスタンプ一つで終了していただけます。
-              </p>
-            </div>
+            {content.faq.items.map((faqItem, idx) => (
+              <div key={idx}>
+                <p className="font-semibold">Q. {faqItem.question}</p>
+                <p className="text-slate-600">A. {faqItem.answer}</p>
+              </div>
+            ))}
           </div>
         </section>
       </main>
@@ -164,20 +193,21 @@ export const HairOwnerLanding: React.FC = () => {
       <div className="fixed inset-x-0 bottom-0 bg-white text-slate-900">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="text-[11px] leading-tight">
-            <div className="font-semibold">＼ 電話対応に追われないサロンへ ／</div>
-            <div className="text-slate-300">まずはLINEで無料トライアル相談（1分で完了）</div>
+            <div className="font-semibold">
+              {content.footerCta.eyebrow}
+            </div>
+            <div className="text-slate-500">
+              {content.footerCta.description}
+            </div>
           </div>
           <button
             onClick={handleClick}
             className="px-4 py-2 rounded-full text-xs font-semibold bg-amber-400 text-slate-900 hover:bg-amber-300 transition"
           >
-            LINEで無料トライアル相談をする
+            {content.footerCta.buttonLabel}
           </button>
         </div>
       </div>
     </div>
   );
 };
-
-
-
