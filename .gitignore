@@ -9,3 +9,5 @@ dist/
 booking-ui/.env.local
 
 booking-ui/public/templates/lash-owner-lp-soft.json.*.bak
+
+booking-ui/public/templates/*.json.*.bak
