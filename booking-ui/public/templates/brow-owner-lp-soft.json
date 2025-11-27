@@ -1,0 +1,61 @@
+{
+  "id": "brow-owner-lp-soft",
+  "title": "Kazuki Booking | LINE予約SaaS（美容室向け）",
+  "primaryColor": "#1A4B67",
+  "accentColor": "#4C7C93",
+  "sections": [
+    {
+      "type": "hero",
+      "buttonUrl": "https://lin.ee/your-line-url",
+      "lead": "...",
+      "badge": "美容サロン向け｜LINE予約SaaS",
+      "title": "美容室の予約運営を『ほぼ自動』にする仕組みを届けます",
+      "buttonLabel": "LINEで無料デモを見る"
+    },
+    {
+      "type": "html",
+      "html": "<section class=\"lp-section lp-section--voice\">\r\n  <div class=\"lp-section-inner\">\r\n    <h2 class=\"lp-section-title\">導入サロン様の声</h2>\r\n    <p class=\"lp-section-lead\">\r\n      「予約の抜け漏れが怖くて、いつもLINEを何度も見直していました。<br/>\r\n      今は自動で枠管理してくれるので、施術に集中できる時間が増えました。」\r\n    </p>\r\n\r\n    <div class=\"lp-voice-grid\">\r\n      <article class=\"lp-voice-card\">\r\n        <h3 class=\"lp-voice-title\">個人サロン / 30代オーナー様</h3>\r\n        <p class=\"lp-voice-text\">\r\n          予約対応に追われていた時間が1日あたり1〜2時間減りました。<br/>\r\n          夜の返信ラッシュがなくなって、プライベートの時間も取り戻せています。\r\n        </p>\r\n      </article>\r\n\r\n      <article class=\"lp-voice-card\">\r\n        <h3 class=\"lp-voice-title\">スタッフ3名サロン / 40代オーナー様</h3>\r\n        <p class=\"lp-voice-text\">\r\n          スタッフごとの空き枠管理がわかりやすくなり、<br/>\r\n          「この時間ならご案内できます」がすぐに出せるようになりました。\r\n        </p>\r\n      </article>\r\n    </div>\r\n  </div>\r\n</section>"
+    },
+    {
+      "type": "html",
+      "html": "<section class=\"lp-section lp-section--faq\">\r\n  <div class=\"lp-section-inner\">\r\n    <h2 class=\"lp-section-title\">よくあるご質問</h2>\r\n\r\n    <div class=\"lp-faq-list\">\r\n      <div class=\"lp-faq-item\">\r\n        <h3 class=\"lp-faq-question\">Q. 初期設定はどこまでサポートしてもらえますか？</h3>\r\n        <p class=\"lp-faq-answer\">\r\n          A. メニュー登録、営業時間設定、LINE公式アカウントとの接続までは\r\n          専任スタッフがオンラインでサポートいたします。\r\n        </p>\r\n      </div>\r\n\r\n      <div class=\"lp-faq-item\">\r\n        <h3 class=\"lp-faq-question\">Q. 既に予約システムを使っているのですが乗り換えは可能ですか？</h3>\r\n        <p class=\"lp-faq-answer\">\r\n          A. 既存システムの運用状況を伺った上で、LINE予約との役割分担や\r\n          段階的な乗り換え方法をご提案します。\r\n        </p>\r\n      </div>\r\n\r\n      <div class=\"lp-faq-item\">\r\n        <h3 class=\"lp-faq-question\">Q. 契約期間の縛りはありますか？</h3>\r\n        <p class=\"lp-faq-answer\">\r\n          A. 月額プランのみで、最低利用期間の縛りはありません。\r\n          合わないと感じた場合は当月末でご解約いただけます。\r\n        </p>\r\n      </div>\r\n    </div>\r\n\r\n    <div class=\"lp-faq-cta\">\r\n      <p class=\"lp-faq-cta-text\">\r\n        「うちのサロンでも合うかな？」と感じたら、まずはLINEでお気軽にご相談ください。\r\n      </p>\r\n      <a href=\"https://lin.ee/your-line-url\" class=\"lp-button lp-button--primary\">\r\n        LINEで無料相談する\r\n      </a>\r\n    </div>\r\n  </div>\r\n</section>"
+    },
+    {
+      "type": "pricing",
+      "plans": [
+        {
+          "popular": true,
+          "features": [
+            "LINE予約受付",
+            "自動リマインド（前日/当日）",
+            "予約一覧ダッシュボード",
+            "メニュー / 営業時間カスタマイズ",
+            "チャットサポート"
+          ],
+          "buttonUrl": "https://lin.ee/your-line-url",
+          "name": "Standard（個人アイブロウサロン向け）",
+          "price": "¥6,980 / 月（税込）",
+          "description": "個人オーナー・少人数サロン向け。まずは予約対応を『ほぼ自動化』して、施術に集中したい方向けのプランです。",
+          "buttonLabel": "LINEでアイブロウサロン向けデモを見る"
+        },
+        {
+          "popular": false,
+          "features": [
+            "Standard の全機能",
+            "複数スタッフ・指名管理",
+            "顧客カルテ / 来店履歴",
+            "売上・再来率レポート",
+            "優先サポート"
+          ],
+          "buttonUrl": "https://lin.ee/your-line-url",
+          "name": "Growth（複数スタッフアイブロウサロン向け）",
+          "price": "¥12,800 / 月（税込）",
+          "description": "複数スタッフ・席数多めのサロン向け。スタッフ別の予約管理や、より細かい枠調整をしたい方向けのプランです。",
+          "buttonLabel": "複数スタッフプランをLINEで相談する"
+        }
+      ],
+      "title": "料金プラン",
+      "subtitle": "サロンの規模と成長ステージに合わせて選べる2つのプランをご用意しました。"
+    }
+  ]
+}
