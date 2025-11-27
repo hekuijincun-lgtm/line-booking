@@ -5,6 +5,7 @@ const LINE_CTA_URL = "https://lin.ee/ovVekXY";
 export type HairOwnerLandingContent = {
   hero: {
     badge: string;
+    /** 例: "予約LINEの返信漏れ・ダブルブッキングをゼロにして、" */
     title: string;
     /** 例: "Kazuki Booking は " */
     leadPrefix: string;
@@ -34,6 +35,9 @@ export type HairOwnerLandingContent = {
       highlight?: boolean;
       highlightLabel?: string; // 例: "スタンダード（人気）"
       features: string[];
+      /** JSON から読みたいボタン文言・URL（省略可） */
+      buttonLabel?: string;
+      buttonUrl?: string;
     }[];
   };
   afterIntro: {
@@ -107,9 +111,7 @@ export const HairOwnerLanding: React.FC<Props> = ({ content }) => {
         {/* メインCTA */}
         <section className="bg-white text-slate-900 rounded-2xl p-6 space-y-3">
           <h2 className="text-lg font-semibold">{content.mainCta.title}</h2>
-          <p className="text-sm text-slate-600">
-            {content.mainCta.body}
-          </p>
+          <p className="text-sm text-slate-600">{content.mainCta.body}</p>
           <button
             onClick={handleClick}
             className="inline-flex items-center justify-center px-5 py-2.5 rounded-full text-xs font-semibold bg-amber-400 text-slate-900 hover:bg-amber-300 transition"
@@ -124,17 +126,19 @@ export const HairOwnerLanding: React.FC<Props> = ({ content }) => {
         {/* 料金イメージ */}
         <section className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
           <h2 className="text-base font-semibold">{content.pricing.title}</h2>
-          <p className="text-xs text-slate-900">
-            {content.pricing.note}
-          </p>
+          <p className="text-xs text-slate-900">{content.pricing.note}</p>
           <div className="grid md:grid-cols-3 gap-4 text-xs">
             {content.pricing.plans.map((plan, index) => {
               const isHighlight = plan.highlight;
-              const baseClasses =
-                "border rounded-2xl p-4 space-y-1";
+              const baseClasses = "border rounded-2xl p-4 space-y-2";
               const highlightClasses = isHighlight
                 ? "border-amber-300 bg-amber-50"
                 : "border-slate-200";
+
+              const onPlanClick = () => {
+                const url = plan.buttonUrl ?? LINE_CTA_URL;
+                window.open(url, "_blank");
+              };
 
               return (
                 <div
@@ -156,6 +160,17 @@ export const HairOwnerLanding: React.FC<Props> = ({ content }) => {
                       <li key={i}>・{feature}</li>
                     ))}
                   </ul>
+
+                  {/* プランごとの CTA ボタン（JSON に buttonLabel があれば表示） */}
+                  {plan.buttonLabel && (
+                    <button
+                      type="button"
+                      onClick={onPlanClick}
+                      className="mt-3 inline-flex items-center justify-center px-4 py-2 rounded-full text-[11px] font-semibold border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 transition"
+                    >
+                      {plan.buttonLabel}
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -193,9 +208,7 @@ export const HairOwnerLanding: React.FC<Props> = ({ content }) => {
       <div className="fixed inset-x-0 bottom-0 bg-white text-slate-900">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="text-[11px] leading-tight">
-            <div className="font-semibold">
-              {content.footerCta.eyebrow}
-            </div>
+            <div className="font-semibold">{content.footerCta.eyebrow}</div>
             <div className="text-slate-500">
               {content.footerCta.description}
             </div>
