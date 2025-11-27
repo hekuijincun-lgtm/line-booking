@@ -1,3 +1,4 @@
+// booking-ui/src/LpViewer.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   HairOwnerLanding,
@@ -135,6 +136,10 @@ const FALLBACK_HAIR_OWNER_SOFT: HairOwnerLandingContent = {
   },
 };
 
+const FALLBACK_BY_TEMPLATE: Record<TemplateId, HairOwnerLandingContent> = {
+  "hair-owner-lp-soft": FALLBACK_HAIR_OWNER_SOFT,
+};
+
 function getTemplateIdFromLocation(): TemplateId {
   if (typeof window === "undefined") {
     return "hair-owner-lp-soft";
@@ -151,13 +156,13 @@ function getTemplateIdFromLocation(): TemplateId {
 }
 
 export const LpViewer: React.FC = () => {
-  const [content, setContent] = useState<HairOwnerLandingContent>(
-    FALLBACK_HAIR_OWNER_SOFT
-  );
-
   const templateId = useMemo(() => getTemplateIdFromLocation(), []);
   const template = TEMPLATE_MAP[templateId];
   const Component = template.component;
+
+  const [content, setContent] = useState<HairOwnerLandingContent>(
+    FALLBACK_BY_TEMPLATE[templateId] ?? FALLBACK_HAIR_OWNER_SOFT
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -180,10 +185,26 @@ export const LpViewer: React.FC = () => {
           return;
         }
 
-        const data = (await res.json()) as HairOwnerLandingContent;
+        const raw = await res.json();
 
-        if (!cancelled && data) {
-          setContent(data);
+        // JSON → コンポーネント用の構造にマージ
+        const fallback = FALLBACK_BY_TEMPLATE[templateId] ?? FALLBACK_HAIR_OWNER_SOFT;
+
+        const merged: HairOwnerLandingContent = {
+          ...fallback,
+          ...(raw as Partial<HairOwnerLandingContent>),
+          hero: {
+            ...fallback.hero,
+            ...(raw as any).hero,
+          },
+          pricing: {
+            ...fallback.pricing,
+            ...(raw as any).pricing,
+          },
+        };
+
+        if (!cancelled) {
+          setContent(merged);
         }
       } catch (e) {
         console.error("[LpViewer] JSON fetch error:", e);
@@ -195,7 +216,7 @@ export const LpViewer: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [template.jsonPath]);
+  }, [template.jsonPath, templateId]);
 
   return <Component content={content} />;
 };
