@@ -1,4 +1,11 @@
 [
   "hair-owner-lp-soft",
-  "lash-owner-lp-soft"
+  "lash-owner-lp-soft",
+  {
+    "id": "brow-owner-lp-soft",
+    "name": "眉サロンオーナー向けLP（Soft）",
+    "description": "LINE予約と相性の良い、眉サロン専用のエレガントLPテンプレート",
+    "category": "brow",
+    "presetUrl": "?template=brow-owner-lp-soft"
+  }
 ]
