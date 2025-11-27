@@ -1,0 +1,47 @@
+name: Deploy booking-ui to Staging + LP Smoke
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'booking-ui/**'
+      - '.github/workflows/booking-ui-deploy-staging.yml'
+
+jobs:
+  deploy-booking-ui-staging:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: booking-ui
+
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      LP_STAGING_BASEURL: ${{ secrets.BOOKING_UI_STAGING_BASEURL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build booking-ui
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages (staging)
+        run: |
+          npx wrangler pages deploy dist
+
+      - name: LP Smoke Test (hair / lash)
+        shell: pwsh
+        run: |
+          ./scripts/Invoke-LpSmoke.ps1 -BaseUrl $env:LP_STAGING_BASEURL
