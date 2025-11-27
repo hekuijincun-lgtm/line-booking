@@ -6,11 +6,11 @@
   "sections": [
     {
       "type": "hero",
-      "badge": "美容室オーナー向け｜LINE予約SaaS",
-      "title": "変更したいタイトル",
-      "lead": "予約対応がいつの間にか後回しで、深夜にまとめて返信している…そんな状態から卒業しませんか？Kazuki Booking は「施術に集中できるサロン運営」を取り戻すためのLINE予約仕組み化パッケージです。",
       "buttonLabel": "LINEで無料デモを見る",
-      "buttonUrl": "https://lin.ee/your-line-url"
+      "buttonUrl": "https://lin.ee/your-line-url",
+      "lead": "...",
+      "badge": "美容サロン向け｜LINE予約SaaS",
+      "title": "美容室の予約運営を『ほぼ自動』にする仕組みを届けます"
     },
     {
       "type": "html",
@@ -24,8 +24,6 @@
       "type": "pricing",
       "plans": [
         {
-          "name": "Standard",
-          "price": "¥6,980 / 月（税込）",
           "popular": true,
           "features": [
             "LINE予約受付",
@@ -34,12 +32,13 @@
             "メニュー / 営業時間カスタマイズ",
             "チャットサポート"
           ],
-          "buttonLabel": "LINEで無料デモを見る",
-          "buttonUrl": "https://lin.ee/your-line-url"
+          "buttonUrl": "https://lin.ee/your-line-url",
+          "name": "スタンダードプラン",
+          "price": "¥6,980 / 月（税込）",
+          "description": "個人オーナー・少人数サロン向け。まずは予約対応を『ほぼ自動化』して、施術に集中したい方向けのプランです。",
+          "buttonLabel": "LINEでスタンダードプランの相談をする"
         },
         {
-          "name": "Growth",
-          "price": "¥12,800 / 月（税込）",
           "popular": false,
           "features": [
             "Standard の全機能",
@@ -48,10 +47,15 @@
             "売上・再来率レポート",
             "優先サポート"
           ],
-          "buttonLabel": "GrowthプランについてLINEで相談する",
-          "buttonUrl": "https://lin.ee/your-line-url"
+          "buttonUrl": "https://lin.ee/your-line-url",
+          "name": "グロースプラン",
+          "price": "¥12,800 / 月（税込）",
+          "description": "複数スタッフ・席数多めのサロン向け。スタッフ別の予約管理や、より細かい枠調整をしたい方向けのプランです。",
+          "buttonLabel": "LINEでグロースプランの相談をする"
         }
-      ]
+      ],
+      "title": "料金プラン",
+      "subtitle": "サロンの規模と成長ステージに合わせて選べる2つのプランをご用意しました。"
     }
   ]
 }
