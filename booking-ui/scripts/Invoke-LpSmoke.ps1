@@ -2,10 +2,11 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$BaseUrl,
 
-    [string[]]$Templates = @(
-        "hair-owner-lp-soft",
-        "lash-owner-lp-soft"
-    )
+    [string[]]$templates = @(
+    "hair-owner-lp-soft",
+    "lash-owner-lp-soft",
+    "brow-owner-lp-soft"
+)
 )
 
 $ErrorActionPreference = "Stop"

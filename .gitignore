@@ -7,3 +7,5 @@ booking-ui/_node_modules.trash.*/
 dist/
 # env files (UIは追跡しない)
 booking-ui/.env.local
+
+booking-ui/public/templates/lash-owner-lp-soft.json.*.bak
