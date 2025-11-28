@@ -64,3 +64,22 @@ if (document.readyState === "loading") {
 } else {
   setupLpScrollAnimation();
 }
+
+
+// === Hash Killer for LINE Demo ===
+const LINE_DEMO_URL = "https://lin.ee/NwslOKq";
+
+function killHashAndRedirect() {
+  if (location.hash === "#line-demo") {
+    // react ルーターの遷移を殺す
+    history.replaceState(null, "", location.pathname + location.search);
+    // LINEへ
+    window.location.href = LINE_DEMO_URL;
+  }
+}
+
+// 初回
+killHashAndRedirect();
+
+// URL 変更監視（React Router 対策）
+window.addEventListener("hashchange", killHashAndRedirect);
