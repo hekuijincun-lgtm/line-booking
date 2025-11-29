@@ -1,5 +1,5 @@
 {
-  "id": "lash-owner-lp-soft",
+  "id": "brow-owner-lp-soft",
   "title": "Kazuki Booking | LINE予約SaaS（美容室向け）",
   "primaryColor": "#1A4B67",
   "accentColor": "#4C7C93",
@@ -39,10 +39,10 @@
             "チャットサポート"
           ],
           "buttonUrl": "https://lin.ee/NwslOKq",
-          "name": "Standard（個人まつげサロン向け）",
+          "name": "Standard（個人アイブロウサロン向け）",
           "price": "¥6,980 / 月（税込）",
           "description": "個人オーナー・少人数サロン向け。まずは予約対応を『ほぼ自動化』して、施術に集中したい方向けのプランです。",
-          "buttonLabel": "LINEで相談する"
+          "buttonLabel": "LINEでアイブロウサロン向けデモを見る"
         },
         {
           "popular": false,
@@ -54,7 +54,7 @@
             "優先サポート"
           ],
           "buttonUrl": "https://lin.ee/NwslOKq",
-          "name": "Growth（複数スタッフまつげサロン向け）",
+          "name": "Growth（複数スタッフアイブロウサロン向け）",
           "price": "¥12,800 / 月（税込）",
           "description": "複数スタッフ・席数多めのサロン向け。スタッフ別の予約管理や、より細かい枠調整をしたい方向けのプランです。",
           "buttonLabel": "複数スタッフプランをLINEで相談する"
@@ -65,4 +65,3 @@
     }
   ]
 }
-
