@@ -67,7 +67,10 @@ if (document.readyState === "loading") {
 
 
 // === Hash Killer for LINE Demo ===
+
+// LPのLINE誘導先（#line-demo の実体）
 const LINE_DEMO_URL = "https://lin.ee/NwslOKq";
+
 
 function killHashAndRedirect() {
   if (location.hash === "#line-demo") {
