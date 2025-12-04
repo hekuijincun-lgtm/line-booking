@@ -1,0 +1,26 @@
+{
+  "id": "nail-salon-soft",
+  "theme": {
+    "primary": "#E91E63",
+    "accent": "#F8BBE9",
+    "background": "#FFFFFF",
+    "mode": "soft"
+  },
+  "hero": {
+    "title": "ネイルサロンの予約と売上が安定するLINE予約DX",
+    "subtitle": "インスタの世界観はそのままに、LINEで予約が埋まる仕組みをつくる。",
+    "cta": "LINEで無料相談する"
+  },
+  "pricing": {
+    "plans": [
+      {
+        "name": "スタンダード",
+        "price": "24,800円（税込）"
+      },
+      {
+        "name": "グロース",
+        "price": "39,800円（税込）"
+      }
+    ]
+  }
+}

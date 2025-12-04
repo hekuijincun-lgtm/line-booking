@@ -1,8 +1,8 @@
-// booking-ui/src/App.tsx
-import { LpViewer } from "./LpViewer";
+import { LandingPage } from "./pages/Landing";
 
 function App() {
-  return <LpViewer />;
+  return <LandingPage />;
 }
 
 export default App;
+

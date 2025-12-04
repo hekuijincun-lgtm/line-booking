@@ -1,0 +1,26 @@
+{
+  "id": "hair-salon-soft",
+  "theme": {
+    "primary": "#0A1A3F",
+    "accent": "#C8A03F",
+    "background": "#FFFFFF",
+    "mode": "soft"
+  },
+  "hero": {
+    "title": "ヘアサロン経営を加速させるLINE予約DX",
+    "subtitle": "ホットペッパー頼みから卒業して、自分のLINEで新規とリピートを増やす仕組みを。",
+    "cta": "LINEで無料相談する"
+  },
+  "pricing": {
+    "plans": [
+      {
+        "name": "スタンダード",
+        "price": "29,800円（税込）"
+      },
+      {
+        "name": "グロース",
+        "price": "49,800円（税込）"
+      }
+    ]
+  }
+}
